@@ -1,5 +1,6 @@
 import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
+import { authRouter } from "./modules";
 
 const bootstrap = () => {
   const port = process.env.PORT || 3000;
@@ -10,7 +11,7 @@ const bootstrap = () => {
   app.get("/", async (req:Request, res:Response , next:NextFunction):Promise<void> => {
     res.send("Hello World! Welcome to Fakebook");
   });
-  // app.use("/auth", authRouter);
+  app.use("/auth", authRouter);
   // app.use("/user", userRouter);
   // app.use("/message", messageRouter);
 
