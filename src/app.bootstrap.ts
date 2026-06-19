@@ -1,6 +1,7 @@
 import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter } from "./modules";
+import { globalErrorHandler } from "./middleware";
 
 const bootstrap = () => {
   const port = process.env.PORT || 3000;
@@ -23,11 +24,8 @@ const bootstrap = () => {
   //success response
   // app.use(successResponse as any);
 
-  //error-handling
-  // app.use(globalErrorHandling as any);
-  // app.use(ErrorException as any);
-  // app.use(NotFoundException as any);
-  // app.use(ConflictException as any);
+  // error-handling
+  app.use(globalErrorHandler);
 
   app.listen(port, () => console.log(`Fakebook app listening on port ${port}!`));
 

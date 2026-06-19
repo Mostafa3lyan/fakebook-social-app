@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { type Request, type Response, type NextFunction } from "express";
 import authService from "./auth.service";
+import { successResponse } from "../../common/response";
+import { ILoginResponse, ISignupResponse } from "./auth.entity";
 // import { confirmEmail, enableTwoFactorAuth, forgotPassword, login, loginConfirm, requestTwoFactorAuth, reSendConfirmEmail, resetPassword, signup, signupWithGmail, verifyMagicLink, verifyOtp } from "./auth.service.js";
 // import { successResponse } from "./../../common/utils/response/success.response.js";
 // import * as validators from "./auth.validation.js";
@@ -11,10 +13,20 @@ import authService from "./auth.service";
 const router = Router();
   
 
-router.post("/login", (req: Request, res: Response, next: NextFunction): Response => {
+router.post("/login", (req: Request, res: Response, next: NextFunction) => {
   const data = authService.login(req.body);
-  return res.status(200).json({
-    message: "done",
+  return successResponse<ILoginResponse>({
+    res,
+    data,
+  });
+})
+
+
+router.post("/signup", (req: Request, res: Response, next: NextFunction) => {
+  const data = authService.signup(req.body);
+  return successResponse<ISignupResponse>({
+    res,
+    status: 201,
     data,
   });
 })

@@ -1,13 +1,17 @@
+import { LoginDto, SignupDto } from "./auth.dto";
 
 class AuthenticationService {
 
   constructor() { }
 
 
-  login = (data: any): string => {
-    return "Login route";
+  login = (data: LoginDto): LoginDto => {
+    return data;
   }
 
+  signup = (data: SignupDto): SignupDto => {
+    return data;
+  }
 
 }
 
