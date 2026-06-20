@@ -7,7 +7,7 @@ import {
   REFRESH_TOKEN_SECRET_KEY,
   SYSTEM_ACCESS_TOKEN_SECRET_KEY,
   SYSTEM_REFRESH_TOKEN_SECRET_KEY,
-} from "../../../../config/config.service.js";
+} from "../../../config/config.js";
 import { findOne } from "../../../DB/db.repository.js";
 import { UserModel } from "../../../DB/index.js";
 import { TokenTypeEnum } from "../../enums/security.enum.js";
@@ -92,7 +92,7 @@ export class TokenService {
     token: string;
     tokenType?: TokenTypeEnum;
   }) {
-    const decoded = jwt.decode(token) as any;  
+    const decoded = jwt.decode(token) as any;
 
     if (!decoded?.aud?.length) {
       throw BadRequestException({ message: "Missing token audience" });

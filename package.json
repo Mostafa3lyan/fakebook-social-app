@@ -4,18 +4,23 @@
   "description": "",
   "main": "./dist/main.js",
   "scripts": {
-    "start:dev": "concurrently \"tsc --watch\" \"node --watch dist/main.js\""
+    "start:dev": "cross-env NODE_ENV=development concurrently \"tsc --watch\" \"node --watch dist/main.js\"",
+    "start:prod": "cross-env NODE_ENV=production concurrently \"tsc --watch\" \"node --watch dist/main.js\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@types/dotenv": "^6.1.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.2",
     "concurrently": "^10.0.3"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "cross-env": "^10.1.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
   }
 }

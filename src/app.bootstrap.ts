@@ -2,9 +2,9 @@ import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter } from "./modules";
 import { globalErrorHandler } from "./middleware";
+import { port } from "./config/config";
 
 const bootstrap = () => {
-  const port = process.env.PORT || 3000;
   const app:Express = express();
 
   app.use(express.json())

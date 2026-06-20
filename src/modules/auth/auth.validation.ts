@@ -1,76 +1,74 @@
-import Joi from "joi";
-import { generalValidationFields } from "./../../common/utils/index.js";
+import { z } from "zod";
+
+// Reusable primitives
+
+const email = z.email("invalid email address");
+const password = z.string("password is required").min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,30}$/);
+const otp = z.string("otp is required").length(6).regex(/^\d+$/);
+
+// Schemas
 
 export const loginSchema = {
-  body: Joi.object()
-    .keys({
-      email: generalValidationFields.email,
-      password: generalValidationFields.password,
-    })
-    .required(),
-};
-
+  body: z.object({
+    email,
+    password,
+  }),
+}
 export const signupSchema = {
   body: loginSchema.body
-    .append({
-      fullName: generalValidationFields.fullName.required(),
-      phone: generalValidationFields.phone.required(),
-      confirmPassword: generalValidationFields
-        .confirmPassword()
-        .required()
-        .messages({ "any.only": "Confirm password does not match" }),
+    .extend({
+      fullName: z.string("fullname is required").min(2).max(64),
+      phone: z.string("phone is required").regex(/^(?:\+20|0)?1[0125]\d{8}$/),
+      confirmPassword: z.string("confirm password is required"),
+      role: z.enum(["user", "admin"]).default("user"),
+      gender: z.enum(["male", "female"]),
     })
-    .required(),
+    .refine(
+      (data) => data.password === data.confirmPassword,
+      { message: "Confirm password does not match password", path: ["confirmPassword"] }
+    ),
 
-  query: Joi.object()
-    .keys({
-      lang: Joi.string().valid("ar", "en").required(),
-    })
-    .required(),
+  query: z.strictObject({
+    lang: z.enum(["ar", "en"]),
+  }),
 };
 
 export const forgotPasswordSchema = {
-  body: Joi.object()
-    .keys({
-      email: generalValidationFields.email.required(),
-      method: Joi.string().valid("otp", "link").default("otp").required(),
-    })
-    .required(),
+  body: z.object({
+    email,
+    method: z.enum(["otp", "link"]).default("otp"),
+  }),
 };
 
 export const otpSchema = {
-  body: Joi.object()
-    .keys({
-      otp: generalValidationFields.otp.required(),
-    })
-    .required(),
+  body: z.object({ otp }),
 };
 
 export const emailOtpSchema = {
-  body: Joi.object()
-    .keys({
-      email: generalValidationFields.email.required(),
-      otp: generalValidationFields.otp.required(),
-    })
-    .required(),
+  body: z.object({ email, otp }),
 };
 
 export const emailSchema = {
-  body: Joi.object()
-    .keys({
-      email: generalValidationFields.email.required(),
-    })
-    .required(),
+  body: z.object({ email }),
 };
 
 export const resetPasswordSchema = {
   body: loginSchema.body
-    .required()
-    .append({
-      confirmPassword: generalValidationFields
-        .confirmPassword()
-        .required()
-        .messages({ "any.only": "Confirm password does not match" }),
+    .extend({
+      confirmPassword: z.string(),
     })
-    .required(),
+    .refine(
+      (data) => data.password === data.confirmPassword,
+      { message: "Confirm password does not match", path: ["confirmPassword"] }
+    ),
 };
+
+// Inferred types
+
+export type LoginDto = z.infer<typeof loginSchema.body>
+export type SignupDto = z.infer<typeof signupSchema.body>
+export type ForgotDto = z.infer<typeof forgotPasswordSchema>;
+export type OtpDto = z.infer<typeof otpSchema>;
+export type EmailOtpDto = z.infer<typeof emailOtpSchema>;
+export type EmailDto = z.infer<typeof emailSchema>;
+export type ResetDto = z.infer<typeof resetPasswordSchema>;

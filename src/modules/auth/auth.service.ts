@@ -1,4 +1,4 @@
-import { LoginDto, SignupDto } from "./auth.dto";
+import { LoginDto, SignupDto } from "./auth.validation";
 
 class AuthenticationService {
 

@@ -1,19 +1,18 @@
-import { Router } from "express";
-import { type Request, type Response, type NextFunction } from "express";
-import authService from "./auth.service";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { successResponse } from "../../common/response";
 import { ILoginResponse, ISignupResponse } from "./auth.entity";
+import authService from "./auth.service";
 // import { confirmEmail, enableTwoFactorAuth, forgotPassword, login, loginConfirm, requestTwoFactorAuth, reSendConfirmEmail, resetPassword, signup, signupWithGmail, verifyMagicLink, verifyOtp } from "./auth.service.js";
-// import { successResponse } from "./../../common/utils/response/success.response.js";
-// import * as validators from "./auth.validation.js";
+import * as validators from "./auth.validation.js";
 // import { validation } from "../../middleware/validation.middleware.js";
 // import { authentication } from './../../middleware/index.js';
+import { validation } from "../../middleware";
 
 // export class AuthController {
 const router = Router();
   
 
-router.post("/login", (req: Request, res: Response, next: NextFunction) => {
+router.post("/login", validation(validators.loginSchema), (req: Request, res: Response, next: NextFunction) => {
   const data = authService.login(req.body);
   return successResponse<ILoginResponse>({
     res,
@@ -22,7 +21,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
 })
 
 
-router.post("/signup", (req: Request, res: Response, next: NextFunction) => {
+router.post("/signup", validation(validators.signupSchema), (req: Request, res: Response, next: NextFunction) => {
   const data = authService.signup(req.body);
   return successResponse<ISignupResponse>({
     res,
