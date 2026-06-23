@@ -3,7 +3,7 @@ import {
   ENC_SECRET_KEY,
   Encryption_ALGORITHM,
   IV_LENGTH,
-} from "../../../config/config.js";
+} from "../../../config/config.service.js";
 
 export class EncryptionService {
   generateEncryption({ plainText }: { plainText: string }) {

@@ -7,7 +7,7 @@ import {
   REFRESH_TOKEN_SECRET_KEY,
   SYSTEM_ACCESS_TOKEN_SECRET_KEY,
   SYSTEM_REFRESH_TOKEN_SECRET_KEY,
-} from "../../../config/config.js";
+} from "../../../config/config.service.js";
 import { findOne } from "../../../DB/db.repository.js";
 import { UserModel } from "../../../DB/index.js";
 import { TokenTypeEnum } from "../../enums/security.enum.js";

@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { APP_NAME, EMAIL_APP_PASSWORD, Email_USER } from "../../../config/config.js";
+import { APP_NAME, EMAIL_APP_PASSWORD, Email_USER } from "../../../config/config.service.js";
 
 export interface SendEmailParams {
   to: string | string[];

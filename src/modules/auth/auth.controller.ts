@@ -21,8 +21,8 @@ router.post("/login", validation(validators.loginSchema), (req: Request, res: Re
 })
 
 
-router.post("/signup", validation(validators.signupSchema), (req: Request, res: Response, next: NextFunction) => {
-  const data = authService.signup(req.body);
+router.post("/signup", validation(validators.signupSchema), async (req: Request, res: Response, next: NextFunction) => {
+  const data = await authService.signup(req.body);
   return successResponse<ISignupResponse>({
     res,
     status: 201,

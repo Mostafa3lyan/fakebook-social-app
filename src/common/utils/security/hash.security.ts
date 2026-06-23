@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import argon2 from "argon2";
-import { SALT_ROUND } from "../../../config/config.js";
+import { SALT_ROUND } from "../../../config/config.service.js";
 import { HashApproachEnum } from "../../enums/security.enum.js";
 
 export class HashService {
