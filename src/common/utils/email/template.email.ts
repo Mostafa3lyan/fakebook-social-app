@@ -76,7 +76,7 @@ export const emailTemplate = (code: string | number, email: string, title: strin
                       <tr>
                         <td style="padding-right:10px;vertical-align:middle;font-size:16px;">⏱</td>
                         <td style="font-size:13px;color:#c08030;font-weight:500;line-height:1.5;">
-                           This code expires in <strong style="color:#e09040;">5 minutes</strong>. Don't share it with anyone.
+                          This code expires in <strong style="color:#e09040;">5 minutes</strong>. Don't share it with anyone.
                         </td>
                       </tr>
                     </table>

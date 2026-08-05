@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { sendEmail } from "./send.email.js";
-import { emailTemplate } from "./templete.email.js";
+import { emailTemplate } from "./template.email.js";
 
 export const emailEmitter = new EventEmitter();
 

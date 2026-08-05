@@ -1,14 +1,7 @@
 import nodemailer from "nodemailer";
 import { APP_NAME, EMAIL_APP_PASSWORD, Email_USER } from "../../../config/config.service.js";
-
-export interface SendEmailParams {
-  to: string | string[];
-  cc?: string | string[];
-  bcc?: string | string[];
-  subject: string;
-  html: string;
-  attachments?: any[];
-}
+import Mail from "nodemailer/lib/mailer/index.js";
+import { BadRequestException } from "../../exceptions/domain.exception.js";
 
 export const sendEmail = async ({
   to,
@@ -17,7 +10,16 @@ export const sendEmail = async ({
   subject,
   html,
   attachments = []
-}: SendEmailParams) => {
+}: Mail.Options): Promise<void> => {
+
+  if (!to && !cc && !bcc) {
+    throw new BadRequestException("At least one recipient (to, cc, or bcc) must be specified.");
+  }
+
+  if (!(html as string)?.length && !attachments?.length) {
+    throw new BadRequestException("No content to send.");
+  }
+
   // Create a transporter using SMTP
   const transporter = nodemailer.createTransport({
     service: "gmail",

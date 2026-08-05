@@ -1,60 +1,47 @@
 import bcrypt from "bcrypt";
 import argon2 from "argon2";
-import { SALT_ROUND } from "../../../config/config.service.js";
-import { HashApproachEnum } from "../../enums/security.enum.js";
+import { SALT_ROUND } from "../../../config/config.service";
+import { HashApproachEnum } from "../../enums";
 
-export class HashService {
-  async generateHash({
-    plainText,
-    salt = SALT_ROUND,
-    approach = HashApproachEnum.bcrypt,
-  }: {
-    plainText: string;
-    salt?: number;
-    approach?: HashApproachEnum;
-  }) {
-    let hashValue: string;
+export const generateHash = async ({
+  plainText,
+  approach = HashApproachEnum.bcrypt,
+  argon2Options,
+}: {
+  plainText: string;
+  approach?: HashApproachEnum;
+  argon2Options?: argon2.Options;
+}): Promise<string> => {
+  switch (approach) {
+    case HashApproachEnum.argon2:
+      return argon2.hash(plainText, argon2Options);
 
-    switch (approach) {
-      case HashApproachEnum.argon2:
-        hashValue = await argon2.hash(plainText);
-        break;
+    case HashApproachEnum.bcrypt:
+      return bcrypt.hash(plainText, SALT_ROUND);
 
-      case HashApproachEnum.bcrypt:
-      default:
-        hashValue = await bcrypt.hash(plainText, salt);
-        break;
-    }
-
-    return hashValue;
+    default:
+      throw new Error(`Unsupported hash approach: ${approach}`);
   }
+};
 
-  async compareHash({
-    plainText,
-    cipherText,
-    approach = HashApproachEnum.bcrypt,
-  }: {
-    plainText: string;
-    cipherText: string;
-    approach?: HashApproachEnum;
-  }) {
-    let match = false;
+export const compareHash = async ({
+  plainText,
+  cipherText,
+  approach = HashApproachEnum.bcrypt,
+}: {
+  plainText: string;
+  cipherText: string;
+  approach?: HashApproachEnum;
+}): Promise<boolean> => {
+  switch (approach) {
+    case HashApproachEnum.argon2:
+      // argon2.verify expects (hash, plain) — opposite of bcrypt
+      return argon2.verify(cipherText, plainText);
 
-    switch (approach) {
-      case HashApproachEnum.argon2:
-        match = await argon2.verify(cipherText, plainText);
-        break;
+    case HashApproachEnum.bcrypt:
+      return bcrypt.compare(plainText, cipherText);
 
-      case HashApproachEnum.bcrypt:
-      default:
-        match = await bcrypt.compare(plainText, cipherText);
-        break;
-    }
-
-    return match;
+    default:
+      throw new Error(`Unsupported hash approach: ${approach}`);
   }
-}
-
-export const hashService = new HashService();
-export const generateHash = hashService.generateHash.bind(hashService);
-export const compareHash = hashService.compareHash.bind(hashService);
+};
