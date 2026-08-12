@@ -4,6 +4,7 @@ import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter } from "./modules";
 import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
+import { redisService } from "./common/services/redis.service";
 
 const bootstrap = async () => {
   const app: Express = express();
@@ -22,13 +23,14 @@ const bootstrap = async () => {
     res.status(404).json({ message: "Invalid application routing" });
   });
 
-  //success response
+  // success response
   // app.use(successResponse as any);
 
   // error-handling
   app.use(globalErrorHandler);
 
   await connectDB();
+  await redisService.connect();
   app.listen(port, () => console.log(`Fakebook app listening on port ${port}!`));
 
 }

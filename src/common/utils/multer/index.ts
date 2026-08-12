@@ -1,2 +1,2 @@
-export * from "./local.multer.js";
-export * from "./validation.multer.js";
+export * from "./local.multer";
+export * from "./validation.multer";

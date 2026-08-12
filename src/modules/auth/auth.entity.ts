@@ -1,8 +1,8 @@
 
 export interface ILoginResponse {
-  email: string;
-  password?: string;
-}
+  access_token: string;
+  refresh_token: string;
+  twoFactorRequired?: boolean;}
 
 export interface ISignupResponse extends ILoginResponse {
   fullName: string;
