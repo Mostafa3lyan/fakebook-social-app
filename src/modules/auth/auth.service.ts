@@ -18,15 +18,17 @@ import {
 import { RedisService, redisService } from "../../common/services/redis.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
 import { IUser } from "../../common/interfaces";
-import { SignupDto } from "./auth.dto";
-import { LoginDto } from "./auth.validation";
+import { EmailDto, EmailOtpDto, LoginDto, SignupDto } from "./auth.validation";
 import { CLIENT_URL, GOOGLE_CLIENT_ID, MAGIC_LINK_SECRET } from "../../config/config.service";
 import { TokenService } from "../../common/services";
 import { ILoginResponse } from './auth.entity';
+import { OAuth2Client, TokenPayload } from "google-auth-library";
+import { HydratedDocument, Types } from "mongoose";
+import { JwtPayload } from "jsonwebtoken";
 
 class AuthenticationService {
   private readonly userRepository: UserRepository;
-  private readonly redis: RedisService; 
+  private readonly redis: RedisService;
   private readonly tokenService: TokenService;
 
   private readonly MAX_ATTEMPTS = 3;
@@ -34,7 +36,7 @@ class AuthenticationService {
 
   // constructor
   constructor() {
-    this.redis = redisService; // reuse the singleton — do not `new RedisService()`
+    this.redis = redisService; // reuse the singleton
     this.userRepository = new UserRepository();
     this.tokenService = new TokenService();
   }
@@ -87,7 +89,7 @@ class AuthenticationService {
 
   // signup
   public signup = async (data: SignupDto): Promise<IUser> => {
-    const { fullName, email, password, phone } = data as any;
+    const { firstName, lastName, email, password, phone, dateOfBirth, gender } = data as SignupDto;
 
     const emailExist = await this.userRepository.findOne({ filter: { email } });
     if (emailExist) {
@@ -97,10 +99,13 @@ class AuthenticationService {
     const [user] = await this.userRepository.create({
       data: [
         {
-          fullName,
+          firstName,
+          lastName,
           email,
           password: await generateHash({ plainText: password }),
           phone: await encryptGenerator({ plainText: phone }),
+          dateOfBirth,
+          gender,
         },
       ],
     });
@@ -115,7 +120,7 @@ class AuthenticationService {
   };
 
   // confirmEmail
-  public confirmEmail = async ({ email, otp }: { email: string; otp: string }): Promise<void> => {
+  public confirmEmail = async ({ email, otp }: EmailOtpDto): Promise<void> => {
     const payload = { email, subject: EmailSubjectEnum.Confirm_EMAIL };
 
     const account = await this.userRepository.findOne({
@@ -146,7 +151,7 @@ class AuthenticationService {
   };
 
   // reSendConfirmEmail
-  public reSendConfirmEmail = async ({ email }: { email: string }): Promise<void> => {
+  public reSendConfirmEmail = async ({ email }: EmailDto): Promise<void> => {
     const payload = { email, subject: EmailSubjectEnum.Confirm_EMAIL };
 
     const account = await this.userRepository.findOne({
@@ -168,8 +173,8 @@ class AuthenticationService {
   // ===========================
 
   // sendMagicLink
-  private sendMagicLink = async (email: string, userId: string): Promise<void> => {
-    const token = generateToken({ payload: { userId }, secret: MAGIC_LINK_SECRET, expiresIn: "15m" });
+  private sendMagicLink = async (email: string, userId: Types.ObjectId): Promise<void> => {
+    const token = this.tokenService.generateToken({ payload: { userId }, secretKey: MAGIC_LINK_SECRET, options: { expiresIn: "15m" } });
     const link = `${CLIENT_URL}/reset-password?token=${token}`;
 
     await sendEmail({ to: email, subject: "reset your password", html: magicLinkTemplate(link) });
@@ -192,7 +197,7 @@ class AuthenticationService {
   };
 
   // verifyOtp
-  public verifyOtp = async ({ email, otp }: { email: string; otp: string }) => {
+  public verifyOtp = async ({ email, otp }: EmailOtpDto) => {
     const payload = { email, subject: EmailSubjectEnum.Forgot_Password };
 
     const account = await this.userRepository.findOne({
@@ -221,9 +226,9 @@ class AuthenticationService {
 
   // verifyMagicLink
   public verifyMagicLink = async (token: string) => {
-    let payload: any;
+    let payload: JwtPayload;
     try {
-      payload = verifyToken({ token, secretk: MAGIC_LINK_SECRET });
+      payload = this.tokenService.verifyToken({ token, secretKey: MAGIC_LINK_SECRET });
     } catch {
       throw new BadRequestException("Magic link is invalid or expired");
     }
@@ -279,8 +284,8 @@ class AuthenticationService {
       this.redis.otpKey(otpPayload),
       this.redis.otpAttemptsKey(otpPayload),
       this.redis.otpBlockKey(otpPayload),
-      this.redis.revokeTokenPrefix(account._id),
     ]);
+    await this.redis.del(await this.redis.scanKeys(this.redis.revokeTokenPrefix(account._id)));
 
     return account;
   };
@@ -289,13 +294,13 @@ class AuthenticationService {
   // ===========================
 
   // login
-  public async login  (data: LoginDto, issuer: string): Promise<ILoginResponse>  {
+  public async login(data: LoginDto, issuer: string): Promise<ILoginResponse> {
     const { email, password } = data;
 
     const user = await this.userRepository.findOne({
-      filter: { email, provider: ProviderEnum.System,  },
+      filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
     });
-    // emailConfirmedAt: { $exists: true }
+
     if (!user) {
       throw new UnauthorizedException("Email or Password is incorrect");
     }
@@ -309,16 +314,16 @@ class AuthenticationService {
       throw new UnauthorizedException("Email or Password is incorrect");
     }
 
-    // if (user.twoFactorVerified) {
-    //   await this.requestTwoFactorAuth(user);
-    //   return { twoFactorRequired: true };
-    // }
+    if (user.twoFactorVerified) {
+      await this.requestTwoFactorAuth(user);
+      return { twoFactorRequired: true } as ILoginResponse;
+    }
 
     return this.tokenService.createLoginCredentials(user, issuer);
   };
 
   // loginConfirm
-  public loginConfirm = async ({ email, otp }: { email: string; otp: string }, issuer: string) => {
+  public loginConfirm = async ({ email, otp }: EmailOtpDto, issuer: string) => {
     const user = await this.userRepository.findOne({
       filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
     });
@@ -349,7 +354,7 @@ class AuthenticationService {
   };
 
   // requestTwoFactorAuth
-  private requestTwoFactorAuth = async (user: any): Promise<void> => {
+  public requestTwoFactorAuth = async (user: HydratedDocument<IUser>): Promise<void> => {
     const isBlocked = await this.redis.get(this.redis.twoFaBlockKey(user._id));
     if (isBlocked) {
       const remaining = await this.redis.ttl(this.redis.twoFaBlockKey(user._id));
@@ -381,7 +386,7 @@ class AuthenticationService {
   };
 
   // enableTwoFactorAuth
-  public enableTwoFactorAuth = async (user: any, { otp }: { otp: string }): Promise<void> => {
+  public enableTwoFactorAuth = async (user: HydratedDocument<IUser>, { otp }: { otp: string }): Promise<void> => {
     const storedHashedOtp = await this.redis.get(this.redis.twoFaKey(user._id));
     if (!storedHashedOtp) {
       throw new BadRequestException("OTP has expired or is invalid");
@@ -406,7 +411,7 @@ class AuthenticationService {
   // ===========================
 
   // verifyGoogleToken
-  private verifyGoogleToken = async (idToken: string) => {
+  private verifyGoogleToken = async (idToken: string): Promise<TokenPayload> => {
     const client = new OAuth2Client();
     const ticket = await client.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
@@ -420,7 +425,7 @@ class AuthenticationService {
   public signupWithGmail = async (idToken: string, issuer: string) => {
     const payload = await this.verifyGoogleToken(idToken);
 
-    const checkExist = await this.userRepository.findOne({ filter: { email: payload.email } });
+    const checkExist = await this.userRepository.findOne({ filter: { email: payload.email as string } });
     if (checkExist) {
       if (checkExist.provider !== ProviderEnum.Google) {
         throw new ConflictException("invalid provider");
@@ -434,12 +439,12 @@ class AuthenticationService {
 
     const user = await this.userRepository.createOne({
       data: {
-        firstName: payload.given_name,
-        lastName: payload.family_name,
-        email: payload.email,
+        firstName: payload.given_name as string,
+        lastName: payload.family_name as string,
+        email: payload.email as string,
+        profilePicture: payload.picture as string,
         emailConfirmedAt: new Date(),
         provider: ProviderEnum.Google,
-        profilePicture: payload.picture,
       },
     });
 
@@ -451,10 +456,10 @@ class AuthenticationService {
   };
 
   // loginWithGmail
-  public loginWithGmail = async (idToken: string, issuer: string) => {
+  private loginWithGmail = async (idToken: string, issuer: string): Promise<ILoginResponse> => {
     const payload = await this.verifyGoogleToken(idToken);
     const user = await this.userRepository.findOne({
-      filter: { email: payload.email, provider: ProviderEnum.Google },
+      filter: { email: payload.email as string, provider: ProviderEnum.Google },
     });
     if (!user) {
       throw new NotFoundException("Not registered account");

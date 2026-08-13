@@ -8,9 +8,9 @@ export interface IUser {
   phone?: string;
   fullName: string; // virtual
 
-  DOB?: Date;
+  dateOfBirth?: Date;
   emailConfirmedAt?: Date;
-  emailVerifiedAt?: Date;
+  emailVerifiedAt?: Date | undefined;
   changeCredentialsTime?: Date;
 
   profilePicture?: string;

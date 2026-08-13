@@ -6,11 +6,13 @@ import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
 import { userRouter } from "./modules/user";
+import cors from "cors";
 
 const bootstrap = async () => {
   const app: Express = express();
 
-  app.use(express.json())
+  app.use(express.json(), cors());
+
   //application routing
   app.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     res.send("Hello World! Welcome to Fakebook");
@@ -23,9 +25,6 @@ const bootstrap = async () => {
   app.use("{/*dummy}", (req: Request, res: Response, next: NextFunction) => {
     res.status(404).json({ message: "Invalid application routing" });
   });
-
-  // success response
-  // app.use(successResponse as any);
 
   // error-handling
   app.use(globalErrorHandler);

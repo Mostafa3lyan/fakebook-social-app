@@ -48,7 +48,7 @@ class UserService {
       case LogoutEnum.all:
         user.changeCredentialsTime = new Date();
         await user.save();
-        await this.redis.del(await this.redis.keys(this.redis.revokeTokenKey({ userId: sub, jti })));
+        await this.redis.del(await this.redis.scanKeys(this.redis.revokeTokenPrefix(sub)));
         break;
 
       default: {

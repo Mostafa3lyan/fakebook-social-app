@@ -44,6 +44,12 @@ export class RedisService {
   // Key Builders
   // ===========================
 
+  // revoke all keys for a user
+  revokeTokenPrefix(userId: Types.ObjectId | string) {
+    return `RevokeToken::${userId}`;
+  }
+
+  // revoke one key for a specific token (jti) of a user
   revokeTokenKey({
     userId,
     jti,
@@ -51,7 +57,7 @@ export class RedisService {
     userId: Types.ObjectId | string;
     jti: string;
   }) {
-    return `RevokeToken::${userId}::${jti}`;
+    return `${this.revokeTokenPrefix(userId)}::${jti}`;
   }
 
   otpKey({ email, subject }: RedisOtpKey): string {
@@ -206,6 +212,21 @@ export class RedisService {
       return [];
     }
   }
+
+  async scanKeys(prefix: string): Promise<string[]> {
+    const found: string[] = [];
+    let cursor = "0";
+    do {
+      const reply = await this.client.scan(cursor, {
+        MATCH: `${prefix}*`,
+        COUNT: 100,
+      });
+      cursor = reply.cursor;
+      found.push(...reply.keys);
+    } while (cursor !== "0");
+    return found;
+  }
+
 }
 
 export const redisService = new RedisService();

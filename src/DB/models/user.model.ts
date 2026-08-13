@@ -32,7 +32,7 @@ const userSchema = new Schema<IUser>(
       },
     },
     phone: { type: String },
-    DOB: { type: Date },
+    dateOfBirth: { type: Date },
     emailConfirmedAt: { type: Date },
     emailVerifiedAt: { type: Date },
     changeCredentialsTime: { type: Date },
