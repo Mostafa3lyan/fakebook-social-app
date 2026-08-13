@@ -9,6 +9,6 @@ export enum TokenTypeEnum {
 }
 
 export enum LogoutEnum {
-  all = 1,
-  current = 2,
+  all = "all",
+  current = "current",
 }

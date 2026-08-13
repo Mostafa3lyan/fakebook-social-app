@@ -17,7 +17,7 @@ import {
 } from "../exceptions/index";
 import { RedisService, redisService } from "../services/redis.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
-import { HydratedDocument } from "mongoose";
+import { HydratedDocument, Types } from "mongoose";
 import { IUser } from "../interfaces";
 
 export type signatureType = {
@@ -105,14 +105,14 @@ export class TokenService {
     tokenType?: TokenTypeEnum;
   }): Promise<{ user: HydratedDocument<IUser>; decoded: JwtPayload }> {
 
-    const decoded = jwt.decode(token) as jwt.JwtPayload;
+    const decoded = jwt.decode(token) as JwtPayload;
 
     if (!decoded?.aud?.length) {
       throw new BadRequestException("Missing token audience");
     }
 
     const [tokenApproach, signatureRole] = decoded.aud || [];
-    if (!tokenApproach || !signatureRole) {
+    if (tokenApproach === undefined || signatureRole === undefined) {
       throw new BadRequestException("Missing token audience");
     }
 
@@ -128,7 +128,7 @@ export class TokenService {
         this.Redis.revokeTokenKey({ userId: decoded?.sub as string, jti: decoded.jti }),
       ))
     ) {
-      throw new UnauthorizedException("Invalid login session");
+      throw new UnauthorizedException("Invalid login session please try to login again");
     }
 
     const secretKey = await this.getSignature({
@@ -160,7 +160,7 @@ export class TokenService {
   }
 
   async createLoginCredentials(user: HydratedDocument<IUser>, issuer: string): Promise<{ access_token: string; refresh_token: string }> {
-    const payload = { sub: user._id};
+    const payload = { sub: user._id };
     const { accessSignature, refreshSignature } = await this.detectSignature(user.role);
 
     const jwtid = randomUUID();
@@ -169,7 +169,7 @@ export class TokenService {
       secretKey: accessSignature,
       options: {
         issuer,
-        audience: [TokenTypeEnum.access.toString(), user.role.toString()],
+        audience: [TokenTypeEnum.access as unknown as string, user.role],
         expiresIn: ACCESS_TOKEN_EXPIRES_IN,
         jwtid,
       },
@@ -180,7 +180,7 @@ export class TokenService {
       secretKey: refreshSignature,
       options: {
         issuer,
-        audience: [TokenTypeEnum.refresh.toString(), user.role.toString()],
+        audience: [TokenTypeEnum.refresh as unknown as string, user.role],
         expiresIn: REFRESH_TOKEN_EXPIRES_IN,
         jwtid,
       },
@@ -188,4 +188,19 @@ export class TokenService {
 
     return { access_token, refresh_token };
   }
+
+  // create revoke token
+  async createRevokeToken({
+    userId,
+    jti,
+    ttl,
+  }: {
+    userId: Types.ObjectId | string;
+    jti: string;
+    ttl: number;
+  }): Promise<void> {
+    await this.Redis.set(this.Redis.revokeTokenKey({ userId, jti }), jti, ttl);
+    return;
+  };
+
 }

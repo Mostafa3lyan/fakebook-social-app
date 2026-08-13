@@ -5,6 +5,7 @@ import { authRouter } from "./modules";
 import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
+import { userRouter } from "./modules/user";
 
 const bootstrap = async () => {
   const app: Express = express();
@@ -15,7 +16,7 @@ const bootstrap = async () => {
     res.send("Hello World! Welcome to Fakebook");
   });
   app.use("/auth", authRouter);
-  // app.use("/user", userRouter);
+  app.use("/user", userRouter);
   // app.use("/message", messageRouter);
 
   //invalid routing

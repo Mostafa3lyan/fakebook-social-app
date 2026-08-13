@@ -17,7 +17,7 @@ import {
 import { validation } from "../../middleware/validation.middleware.js";
 import * as validators from "./message.validation.js";
 import { TokenTypeEnum } from "../../common/enums/security.enum.js";
-import { authentication } from "../../middleware/authentication.middleware.js";
+import { authentication } from "../../middleware/auth.middleware.js";
 
 export class MessageController {
   router = Router({ caseSensitive: true, strict: true });

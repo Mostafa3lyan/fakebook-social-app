@@ -44,10 +44,6 @@ export class RedisService {
   // Key Builders
   // ===========================
 
-  revokeTokenPrefix(userId: Types.ObjectId | string) {
-    return `RevokeToken::${userId}`;
-  }
-
   revokeTokenKey({
     userId,
     jti,
@@ -55,7 +51,7 @@ export class RedisService {
     userId: Types.ObjectId | string;
     jti: string;
   }) {
-    return `${this.revokeTokenPrefix(userId)}::${jti}`;
+    return `RevokeToken::${userId}::${jti}`;
   }
 
   otpKey({ email, subject }: RedisOtpKey): string {
