@@ -1,13 +1,10 @@
 
+import { OAuth2Client, TokenPayload } from "google-auth-library";
+import { JwtPayload } from "jsonwebtoken";
+import { HydratedDocument, Types } from "mongoose";
+import { EmailSubjectEnum } from "../../common/enums";
 import { HashApproachEnum } from "../../common/enums/security.enum";
 import { ProviderEnum } from "../../common/enums/user.enum";
-import { EmailSubjectEnum } from "../../common/enums";
-import { createOtp, emailEmitter, magicLinkTemplate, sendEmail } from "../../common/utils/index";
-import {
-  compareHash,
-  encryptGenerator,
-  generateHash,
-} from "../../common/utils/security/index";
 import {
   BadRequestException,
   ConflictException,
@@ -15,16 +12,18 @@ import {
   TooManyRequestsException,
   UnauthorizedException,
 } from "../../common/exceptions/index";
-import { RedisService, redisService } from "../../common/services/redis.service";
-import { UserRepository } from "./../../DB/repository/user.repository";
 import { IUser } from "../../common/interfaces";
-import { EmailDto, EmailOtpDto, LoginDto, SignupDto } from "./auth.validation";
-import { CLIENT_URL, GOOGLE_CLIENT_ID, MAGIC_LINK_SECRET } from "../../config/config.service";
 import { TokenService } from "../../common/services";
+import { RedisService, redisService } from "../../common/services/redis.service";
+import { createOtp, emailEmitter, magicLinkTemplate, sendEmail } from "../../common/utils/index";
+import {
+  compareHash,
+  generateHash
+} from "../../common/utils/security/index";
+import { CLIENT_URL, GOOGLE_CLIENT_ID, MAGIC_LINK_SECRET } from "../../config/config.service";
+import { UserRepository } from "./../../DB/repository/user.repository";
 import { ILoginResponse } from './auth.entity';
-import { OAuth2Client, TokenPayload } from "google-auth-library";
-import { HydratedDocument, Types } from "mongoose";
-import { JwtPayload } from "jsonwebtoken";
+import { EmailDto, EmailOtpDto, LoginDto, SignupDto } from "./auth.validation";
 
 class AuthenticationService {
   private readonly userRepository: UserRepository;
@@ -91,7 +90,9 @@ class AuthenticationService {
   public signup = async (data: SignupDto): Promise<IUser> => {
     const { firstName, lastName, email, password, phone, dateOfBirth, gender } = data as SignupDto;
 
-    const emailExist = await this.userRepository.findOne({ filter: { email } });
+    const emailExist = await this.userRepository.findOne({
+      filter: { email, paranoid: false },
+    });
     if (emailExist) {
       throw new ConflictException("Email already exist");
     }
@@ -102,8 +103,8 @@ class AuthenticationService {
           firstName,
           lastName,
           email,
-          password: await generateHash({ plainText: password }),
-          phone: await encryptGenerator({ plainText: phone }),
+          password,
+          phone,
           dateOfBirth,
           gender,
         },
@@ -217,7 +218,7 @@ class AuthenticationService {
       throw new BadRequestException("Invalid OTP");
     }
 
-    account.emailVerifiedAt = new Date();
+    account.resetVerifiedAt = new Date();
     await account.save();
     await this.redis.del(this.redis.otpKey(payload));
 
@@ -245,7 +246,7 @@ class AuthenticationService {
       throw new BadRequestException("Magic link has already been used");
     }
 
-    account.emailVerifiedAt = new Date();
+    account.resetVerifiedAt = new Date();
     await account.save();
 
     await this.redis.set(this.redis.magicLinkRevokeKey(token), "1", 60 * 15);
@@ -264,19 +265,19 @@ class AuthenticationService {
       throw new NotFoundException("Cannot find account with this email");
     }
 
-    if (!account.emailVerifiedAt) {
+    if (!account.resetVerifiedAt) {
       throw new BadRequestException("OTP not verified");
     }
 
-    const isExpired = Date.now() - new Date(account.emailVerifiedAt).getTime() > 10 * 60 * 1000;
+    const isExpired = Date.now() - new Date(account.resetVerifiedAt).getTime() > 10 * 60 * 1000;
     if (isExpired) {
-      account.emailVerifiedAt = undefined;
+      account.resetVerifiedAt = undefined;
       await account.save();
       throw new BadRequestException("Verification expired, please request a new code");
     }
 
-    account.password = await generateHash({ plainText: password });
-    account.emailVerifiedAt = undefined;
+    account.password = password;
+    account.resetVerifiedAt = undefined;
     account.changeCredentialsTime = new Date();
     await account.save();
 
@@ -299,6 +300,7 @@ class AuthenticationService {
 
     const user = await this.userRepository.findOne({
       filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
+      projection: "+password",
     });
 
     if (!user) {
@@ -425,7 +427,9 @@ class AuthenticationService {
   public signupWithGmail = async (idToken: string, issuer: string) => {
     const payload = await this.verifyGoogleToken(idToken);
 
-    const checkExist = await this.userRepository.findOne({ filter: { email: payload.email as string } });
+    const checkExist = await this.userRepository.findOne({
+      filter: { email: payload.email as string, paranoid: false },
+    });
     if (checkExist) {
       if (checkExist.provider !== ProviderEnum.Google) {
         throw new ConflictException("invalid provider");

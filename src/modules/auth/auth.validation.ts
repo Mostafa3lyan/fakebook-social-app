@@ -44,9 +44,9 @@ export const signupSchema = {
       { message: "Confirm password does not match password", path: ["confirmPassword"] }
     ),
 
-  query: z.strictObject({
-    lang: z.enum(["ar", "en"]),
-  }),
+  // query: z.strictObject({
+  //   lang: z.enum(["ar", "en"]),
+  // }),
 };
 
 export const forgotPasswordSchema = {
@@ -58,6 +58,10 @@ export const forgotPasswordSchema = {
 
 export const otpSchema = {
   body: z.object({ otp }),
+};
+
+export const gmailSchema = {
+  body: z.object({ idToken: z.string("idToken is required").min(1) }),
 };
 
 export const emailOtpSchema = {

@@ -1,3 +1,13 @@
+import { z } from "zod";
+import { LogoutEnum } from "../../common/enums";
+
+export const logoutSchema = {
+  // Defaults to a single-session logout so an empty body is valid.
+  body: z.object({
+    flag: z.enum(LogoutEnum).default(LogoutEnum.current),
+  }),
+};
+
 // import Joi from "joi";
 // import { generalValidationFields } from "../../common/utils/index.js";
 // import { fileFieldValidation } from "../../common/utils/multer/validation.multer.js";

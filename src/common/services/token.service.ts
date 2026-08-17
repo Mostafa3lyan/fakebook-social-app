@@ -52,7 +52,22 @@ export class TokenService {
     token: string;
     secretKey?: string;
   }): JwtPayload {
-    return jwt.verify(token, secretKey) as JwtPayload;
+    try {
+      return jwt.verify(token, secretKey) as JwtPayload;
+    } catch (error) {
+      // jsonwebtoken throws plain Errors, which the global handler would turn
+      // into a 500. An expired or forged token is a 401, not a server fault.
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new UnauthorizedException("Token expired");
+      }
+      if (
+        error instanceof jwt.JsonWebTokenError ||
+        error instanceof jwt.NotBeforeError
+      ) {
+        throw new UnauthorizedException("Invalid token");
+      }
+      throw error;
+    }
   }
 
   async detectSignature(signatureRole: RoleEnum): Promise<signatureType> {
@@ -149,14 +164,19 @@ export class TokenService {
       throw new NotFoundException("No registered account");
     }
 
+    const iat = verifiedData.iat;
+    if (typeof iat !== "number") {
+      throw new UnauthorizedException("Invalid login session");
+    }
+
     if (
       user.changeCredentialsTime &&
-      user.changeCredentialsTime.getTime() >= (decoded.iat as number || 0) * 1000
+      Math.floor(user.changeCredentialsTime.getTime() / 1000) > iat
     ) {
       throw new UnauthorizedException("Invalid login session");
     }
 
-    return { user, decoded };
+    return { user, decoded: verifiedData };
   }
 
   async createLoginCredentials(user: HydratedDocument<IUser>, issuer: string): Promise<{ access_token: string; refresh_token: string }> {

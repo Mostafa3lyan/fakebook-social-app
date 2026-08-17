@@ -1,4 +1,4 @@
-import { Router, type NextFunction, type Request, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { RoleEnum, TokenTypeEnum } from "../../common/enums";
 import { successResponse } from "../../common/response/success.response.js";
 import { decodedTypes } from "../../common/types/user.types.js";
@@ -6,7 +6,8 @@ import { decodedTypes } from "../../common/types/user.types.js";
 import { authentication, authorization } from "../../middleware/index";
 import { validation } from "../../middleware/validation.middleware";
 import userService from "./user.service.js";
-// import * as validators from "./user.validation.js";
+import * as validators from "./user.validation.js";
+import { cloudFileUpload } from "../../common/utils/multer";
 
 const router = Router();
 
@@ -24,10 +25,15 @@ router.get("/",
 );
 
 // Logout
-router.post("/logout", authentication(), async (req: Request, res: Response) => {
-  const status = await userService.logout(req.body, req.user, req.decoded as decodedTypes);
-  return successResponse({ res, status });
-});
+router.post(
+  "/logout",
+  authentication(),
+  validation(validators.logoutSchema),
+  async (req: Request, res: Response) => {
+    const status = await userService.logout(req.body, req.user, req.decoded as decodedTypes);
+    return successResponse({ res, status });
+  },
+);
 
 // Rotate Token
 router.post(
@@ -74,21 +80,21 @@ router.post(
 
 
 
-// // add Profile Image
-// router.patch(
-//   "/profile-image",
-//   authentication(),
-//   localFileUpload({
-//     customPath: "users/profile",
-//     validation: fileFieldValidation.image,
-//     maxSize: 5,
-//   }).single("attachment"),
-//   validation(validators.profileImage),
-//   async (req: Request, res: Response) => {
-//     const account = await userService.profileImage(req.file, req.user);
-//     return successResponse({ res, data: { account } });
-//   },
-// );
+// add Profile Image
+router.patch(
+  "/profile-image",
+  authentication(),
+  cloudFileUpload({
+    customPath: "users/profile",
+    validation: fileFieldValidation.image,
+    maxSize: 5,
+  }).single("attachment"),
+  validation(validators.profileImage),
+  async (req: Request, res: Response) => {
+    const account = await userService.profileImage(req.file, req.user);
+    return successResponse({ res, data: { account } });
+  },
+);
 
 // // remove Profile Image
 // router.delete(

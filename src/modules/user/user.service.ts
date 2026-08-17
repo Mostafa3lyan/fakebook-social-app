@@ -1,24 +1,23 @@
+import { HydratedDocument } from "mongoose";
 import { LogoutEnum, RoleEnum } from "../../common/enums";
-import {
-  ACCESS_TOKEN_EXPIRES_IN,
-  REFRESH_TOKEN_EXPIRES_IN,
-} from "../../config/config.service";
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
 } from "../../common/exceptions/index";
+import { IUser } from "../../common/interfaces";
+import { RedisService, redisService } from "../../common/services/redis.service";
+import { TokenService } from "../../common/services/token.service";
+import { decodedTypes } from "../../common/types/user.types";
 import {
   compareHash,
   decryptGenerator,
-  generateHash,
 } from "../../common/utils/security/index";
-import { RedisService, redisService } from "../../common/services/redis.service";
-import { TokenService } from "../../common/services/token.service";
+import {
+  ACCESS_TOKEN_EXPIRES_IN,
+  REFRESH_TOKEN_EXPIRES_IN,
+} from "../../config/config.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
-import { HydratedDocument } from "mongoose";
-import { IUser } from "../../common/interfaces";
-import { decodedTypes } from "../../common/types/user.types";
 
 class UserService {
   private readonly userRepository: UserRepository;
@@ -123,7 +122,7 @@ class UserService {
   };
 
   // upload profile image
-  public profileImage = async (file: any, user: HydratedDocument<IUser>) => {
+  public profileImage = async (file: Express.Multer.File, user: HydratedDocument<IUser>) => {
     user.profilePicture = file.finalPath;
     await user.save();
     return user;
@@ -152,16 +151,25 @@ class UserService {
     user: HydratedDocument<IUser>,
     issuer: string,
   ) => {
+    const account = await this.userRepository.findOne({
+      filter: { _id: user._id },
+      projection: "+password +oldPasswords",
+    });
+
+    if (!account) {
+      throw new NotFoundException("Account not found");
+    }
+
     const match = await compareHash({
       plainText: oldPassword,
-      cipherText: user.password as string,
+      cipherText: account.password as string,
     });
 
     if (!match) {
       throw new BadRequestException("Old password is incorrect");
     }
 
-    for (const hash of user.oldPasswords || []) {
+    for (const hash of account.oldPasswords || []) {
       const isMatch = await compareHash({
         plainText: newPassword,
         cipherText: hash,
@@ -173,11 +181,11 @@ class UserService {
       }
     }
 
-    user.oldPasswords = user.oldPasswords || [];
-    user.oldPasswords.push(user.password);
-    user.password = await generateHash({ plainText: newPassword });
-    user.changeCredentialsTime = new Date();
-    await user.save();
+    account.oldPasswords = account.oldPasswords || [];
+    account.oldPasswords.push(account.password as string);
+    account.password = newPassword;
+    account.changeCredentialsTime = new Date();
+    await account.save();
 
     await this.redis.del(await this.redis.keys(this.redis.revokeTokenPrefix(user._id)));
     return this.tokenService.createLoginCredentials(user, issuer);

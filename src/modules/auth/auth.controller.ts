@@ -112,18 +112,22 @@ router.patch(
 );
 
 // signup with gmail
-router.post("/signup/gmail", async (req: Request, res: Response) => {
-  const { message, status, credentials } = await authService.signupWithGmail(
-    req.body.idToken,
-    `${req.protocol}://${req.host}`,
-  );
-  return successResponse({
-    message,
-    status,
-    res,
-    data: { ...credentials },
-  });
-});
+router.post(
+  "/signup/gmail",
+  validation(validators.gmailSchema),
+  async (req: Request, res: Response) => {
+    const { message, status, credentials } = await authService.signupWithGmail(
+      req.body.idToken,
+      `${req.protocol}://${req.host}`,
+    );
+    return successResponse({
+      message,
+      status,
+      res,
+      data: { ...credentials },
+    });
+  },
+);
 
 // login confirm (2fa)
 router.post(
