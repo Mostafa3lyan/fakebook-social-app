@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { LogoutEnum } from "../../common/enums";
+import { fileFieldValidation } from "../../common/utils/multer";
+import { file, id, password } from "../../common/validation";
 
+// Schemas
 export const logoutSchema = {
   // Defaults to a single-session logout so an empty body is valid.
   body: z.object({
@@ -8,59 +11,42 @@ export const logoutSchema = {
   }),
 };
 
-// import Joi from "joi";
-// import { generalValidationFields } from "../../common/utils/index.js";
-// import { fileFieldValidation } from "../../common/utils/multer/validation.multer.js";
+export const shareProfile = {
+  params: z.object({ userId: id }),
+};
 
-// export const shareProfile = {
-//   params: Joi.object()
-//     .keys({
-//       userId: generalValidationFields.id.required(),
-//     })
-//     .required(),
-// };
+export const profileImage = {
+  file: file(fileFieldValidation.image),
+};
 
-// export const profileImage = {
-//   file: generalValidationFields.file(fileFieldValidation.image).required(),
-// };
+export const profileCoverImage = {
+  files: z.array(file(fileFieldValidation.image)).min(1).max(5),
+};
 
-// export const profileCoverImage = {
-//   files: Joi.array()
-//     .items(generalValidationFields.file(fileFieldValidation.image).required())
-//     .min(1)
-//     .max(5)
-//     .required(),
-// };
+export const profileAttachments = {
+  files: z.object({
+    firstAttachment: z.array(file(fileFieldValidation.image)).length(1),
+    secondAttachment: z.array(file(fileFieldValidation.image)).min(1).max(5),
+  }),
+};
 
-// export const profileAttachments = {
-//   files: Joi.object()
-//     .keys({
-//       firstAttachment: Joi.array()
-//         .items(
-//           generalValidationFields.file(fileFieldValidation.image).required(),
-//         )
-//         .length(1)
-//         .required(),
-//       secondAttachment: Joi.array()
-//         .items(
-//           generalValidationFields.file(fileFieldValidation.image).required(),
-//         )
-//         .min(1)
-//         .max(5)
-//         .required(),
-//     })
-//     .required(),
-// };
+export const changePasswordSchema = {
+  body: z
+    .object({
+      oldPassword: password,
+      newPassword: password,
+      confirmNewPassword: z.string("confirm password is required"),
+    })
+    .refine((data) => data.newPassword !== data.oldPassword, {
+      message: "New password must be different from the old password",
+      path: ["newPassword"],
+    })
+    .refine((data) => data.newPassword === data.confirmNewPassword, {
+      message: "Confirm password does not match",
+      path: ["confirmNewPassword"],
+    }),
+};
 
-// export const changePasswordSchema = {
-//   body: Joi.object()
-//     .keys({
-//       oldPassword: generalValidationFields.password.required(),
-//       newPassword: generalValidationFields.password.not(Joi.ref("oldPassword")).required(),
-//       confirmNewPassword: generalValidationFields
-//         .confirmPassword("newPassword")
-//         .required()
-//         .messages({ "any.only": "Confirm password does not match" }),
-//     })
-//     .required(),
-// };
+// Inferred types
+export type LogoutDto = z.infer<typeof logoutSchema.body>;
+export type ChangePasswordDto = z.infer<typeof changePasswordSchema.body>;

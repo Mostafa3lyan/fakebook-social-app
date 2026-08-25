@@ -3,11 +3,11 @@ import { RoleEnum, TokenTypeEnum } from "../../common/enums";
 import { successResponse } from "../../common/response/success.response.js";
 import { decodedTypes } from "../../common/types/user.types.js";
 // import { localFileUpload } from "../../common/utils/multer";
+import { cloudFileUpload, fileFieldValidation } from "../../common/utils/multer";
 import { authentication, authorization } from "../../middleware/index";
 import { validation } from "../../middleware/validation.middleware";
 import userService from "./user.service.js";
 import * as validators from "./user.validation.js";
-import { cloudFileUpload } from "../../common/utils/multer";
 
 const router = Router();
 
@@ -85,14 +85,16 @@ router.patch(
   "/profile-image",
   authentication(),
   cloudFileUpload({
-    customPath: "users/profile",
+    // customPath: "users/profile",
     validation: fileFieldValidation.image,
-    maxSize: 5,
   }).single("attachment"),
   validation(validators.profileImage),
   async (req: Request, res: Response) => {
-    const account = await userService.profileImage(req.file, req.user);
-    return successResponse({ res, data: { account } });
+    const data = await userService.profileImage(
+      req.file as Express.Multer.File,
+      req.user,
+    );
+    return successResponse({ res, data });
   },
 );
 

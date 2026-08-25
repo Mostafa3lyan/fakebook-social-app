@@ -1,12 +1,6 @@
 import { z } from "zod";
-import { calculateAge } from "../../common/utils";
 import { GenderEnum } from "../../common/enums";
-
-// Reusable primitives
-const email = z.email("invalid email address");
-const password = z.string("password is required").min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,30}$/);
-const otp = z.string("otp is required").length(6).regex(/^\d+$/);
-
+import { dateOfBirth, email, name, otp, password, phone } from "../../common/validation";
 
 // Schemas
 export const loginSchema = {
@@ -18,24 +12,10 @@ export const loginSchema = {
 export const signupSchema = {
   body: loginSchema.body
     .extend({
-      firstName: z
-        .string()
-        .trim()
-        .min(1, "First name is required")
-        .max(50, "First name is too long")
-        .regex(/^[\p{L}'-]+$/u, "First name must be one word"),
-      lastName: z
-        .string()
-        .trim()
-        .min(1, "Last name is required")
-        .max(50, "Last name is too long")
-        .regex(/^[\p{L}'-]+$/u, "Last name must be one word"),
-      phone: z.string("phone is required").regex(/^(?:\+20|0)?1[0125]\d{8}$/),
-      dateOfBirth: z.coerce
-        .date({ error: "date of birth is required or invalid" })
-        .refine((d) => d <= new Date(), { message: "Date of birth cannot be in the future" })
-        .refine((d) => d >= new Date("1900-01-01"), { message: "Date of birth is not valid" })
-        .refine((d) => calculateAge(d) >= 13, { message: `You must be at least ${13} years old` }),
+      firstName: name("First name"),
+      lastName: name("Last name"),
+      phone,
+      dateOfBirth,
       confirmPassword: z.string("confirm password is required"),
       gender: z.enum(GenderEnum, { error: "gender is required", }),
     })

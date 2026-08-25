@@ -18,16 +18,19 @@ import {
   REFRESH_TOKEN_EXPIRES_IN,
 } from "../../config/config.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
+import { s3Service, S3Service } from "../../common/services";
 
 class UserService {
   private readonly userRepository: UserRepository;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
+  private readonly s3: S3Service;
 
   constructor() {
     this.userRepository = new UserRepository();
     this.tokenService = new TokenService();
     this.redis = redisService;
+    this.s3 = s3Service;
   }
 
 
@@ -123,7 +126,10 @@ class UserService {
 
   // upload profile image
   public profileImage = async (file: Express.Multer.File, user: HydratedDocument<IUser>) => {
-    user.profilePicture = file.finalPath;
+    user.profilePicture = await this.s3.uploadAsset({
+      file,
+      path: `users/${user._id.toString()}/profile`,
+    });
     await user.save();
     return user;
   };

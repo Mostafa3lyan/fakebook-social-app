@@ -1,25 +1,40 @@
 import type { NextFunction, Request, Response } from "express";
-import { ApplicationException } from "../common/exceptions";
+import { MulterError } from "multer";
+import { ApplicationException, BadRequestException } from "../common/exceptions";
+import { NODE_ENV } from "../config/config.service";
 
-interface IError extends Error {
-  statusCode: number;
-}
+const isDevelopment = NODE_ENV === "development";
+
+// Returns the operational exception this error represents, or null when the
+// error is unexpected and must not be exposed to the client.
+const asOperational = (error: unknown): ApplicationException | null => {
+  if (error instanceof ApplicationException) return error;
+
+  if (error instanceof MulterError) {
+    return new BadRequestException(error.message, {
+      code: error.code,
+      field: error.field,
+    });
+  }
+
+  return null;
+};
 
 export const globalErrorHandler = (
-  error: IError,
+  error: Error,
   _req: Request,
   res: Response,
   _next: NextFunction,
 ) => {
-  // known operational error — safe to expose message + code
-  if (error instanceof ApplicationException) {
-    return res.status(error.statusCode).json({
-      status: error.statusCode || 500,
-      message: error.message,
-      cause: error.cause,
-      stack: error.stack,
-      error,
-      // ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
+  const operational = asOperational(error);
+
+  // known operational error — safe to expose message + cause
+  if (operational) {
+    return res.status(operational.statusCode).json({
+      status: operational.statusCode,
+      message: operational.message,
+      ...(operational.cause !== undefined && { cause: operational.cause }),
+      ...(isDevelopment && { stack: operational.stack }),
     });
   }
 
@@ -29,5 +44,10 @@ export const globalErrorHandler = (
   return res.status(500).json({
     status: 500,
     message: "internal server error",
+    ...(isDevelopment && {
+      name: error?.name,
+      detail: error?.message,
+      stack: error?.stack,
+    }),
   });
 };

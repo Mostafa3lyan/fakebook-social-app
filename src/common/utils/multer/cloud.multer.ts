@@ -1,8 +1,25 @@
+import type { Request } from "express";
 import multer from "multer";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os"
+import { StorageApproachEnum } from "../../enums";
+import { fileFilter } from "./validation.multer";
 
+export const cloudFileUpload = ({
+  storageApproach = StorageApproachEnum.MEMORY,
+  validation = [],
+  maxSize = 2,
 
-export const cloudFileUpload = () => {
-  const storage = multer.memoryStorage();
-  const upload = multer({ storage });
+}: { storageApproach?: StorageApproachEnum, validation?: string[], maxSize?: number }) => {
+  const storage = storageApproach === StorageApproachEnum.MEMORY ? multer.memoryStorage() : multer.diskStorage({
+    destination: (req: Request, file: Express.Multer.File, callback: (error: Error | null, destination: string) => void) => {
+      callback(null, tmpdir());
+    },
+    filename: (req: Request, file: Express.Multer.File, callback: (error: Error | null, filename: string) => void) => {
+      const uniqueFileName = randomUUID() + "-" + file.originalname;
+      callback(null, uniqueFileName);
+    }
+  });
+  const upload = multer({ storage, fileFilter: fileFilter(validation), limits: { fileSize: maxSize * 1024 * 1024 } });
   return upload;
 };

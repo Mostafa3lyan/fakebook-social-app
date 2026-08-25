@@ -1,4 +1,6 @@
 import { Request } from "express";
+import { FileFilterCallback } from "multer";
+import { BadRequestException } from "../../exceptions";
 
 export const fileFieldValidation = {
   image: ["image/jpeg", "image/png", "image/jpg", "image/webp"],
@@ -25,9 +27,9 @@ export const fileFieldValidation = {
 };
 
 export const fileFilter = (validation: string[] = []) => {
-  return function (req: Request, file: Express.Multer.File, cb: any) {
+  return function (req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
     if (!validation.includes(file.mimetype)) {
-      return cb(new Error("invalid file format", { cause: { status: 400 } }), false);
+      return cb(new BadRequestException("Invalid file format"));
     }
     return cb(null, true);
   };

@@ -37,3 +37,10 @@ export const Email_USER = process.env.Email_USER as string;
 
 export const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET as string;
 export const CLIENT_URL = process.env.CLIENT_URL as string;
+
+// AWS S3
+export const AWS_BUCKET_NAME = process.env.AWS_BUCKET_NAME as string;
+export const AWS_REGION = process.env.AWS_REGION as string;
+export const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID as string;
+export const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY as string;
+export const AWS_ExPIRES_IN = parseInt(process.env.AWS_ExPIRES_IN || "3600");

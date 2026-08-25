@@ -55,8 +55,6 @@ export class TokenService {
     try {
       return jwt.verify(token, secretKey) as JwtPayload;
     } catch (error) {
-      // jsonwebtoken throws plain Errors, which the global handler would turn
-      // into a 500. An expired or forged token is a 401, not a server fault.
       if (error instanceof jwt.TokenExpiredError) {
         throw new UnauthorizedException("Token expired");
       }

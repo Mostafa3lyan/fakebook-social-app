@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { ZodError, ZodType } from "zod";
 import { BadRequestException } from "../common/exceptions";
 
-type keyReqType = "body" | "query" | "params" | "headers"
+type keyReqType = "body" | "query" | "params" | "headers" | "file" | "files"
 type SchemaType = Partial<Record<keyReqType, ZodType>>;
 type issuesType = Array<{ key: keyReqType; issues: Array<{ message: string; path: (string | number | symbol | undefined | null)[] }> }>;
 export const validation = (schema: SchemaType) => {
@@ -45,8 +45,8 @@ export const validation = (schema: SchemaType) => {
         enumerable: true,
       });
     }
-    // `headers` is deliberately not written back — Node and downstream middleware
-    // read the original object.
+    // `headers`, `file`, and `files` are deliberately not written back — Node,
+    // multer, and downstream middleware read the original objects.
 
     next();
   };

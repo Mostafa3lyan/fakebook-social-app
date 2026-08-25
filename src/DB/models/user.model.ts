@@ -35,7 +35,10 @@ const userSchema = new Schema<IUser, Model<IUser>, {}, {}, IUserVirtuals>(
         return this.provider === ProviderEnum.System;
       },
     },
-    phone: { type: String, minlength: 10, maxlength: 15 },
+    // Stored encrypted (`iv:cipherText`), so no length limits here — they would
+    // measure the cipher text, not the number. Format is enforced by the zod
+    // `phone` field at the request layer.
+    phone: { type: String },
     dateOfBirth: { type: Date },
     emailConfirmedAt: { type: Date },
     resetVerifiedAt: { type: Date },
