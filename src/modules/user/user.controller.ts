@@ -84,14 +84,13 @@ router.post(
 router.patch(
   "/profile-image",
   authentication(),
-  cloudFileUpload({
-    // customPath: "users/profile",
-    validation: fileFieldValidation.image,
-  }).single("attachment"),
-  validation(validators.profileImage),
+  // cloudFileUpload({
+  //   validation: fileFieldValidation.image,
+  // }).single("attachment"),
+  // validation(validators.profileImage),
   async (req: Request, res: Response) => {
     const data = await userService.profileImage(
-      req.file as Express.Multer.File,
+      req.body,
       req.user,
     );
     return successResponse({ res, data });

@@ -125,13 +125,19 @@ class UserService {
   };
 
   // upload profile image
-  public profileImage = async (file: Express.Multer.File, user: HydratedDocument<IUser>) => {
-    user.profilePicture = await this.s3.uploadAsset({
-      file,
+  public profileImage = async ({ contentType, originalname }: { contentType: string, originalname: string }, user: HydratedDocument<IUser>) => {
+    const oldPicture = user.profilePicture;
+    const { url, key } = await this.s3.createPreSignedUrl({
       path: `users/${user._id.toString()}/profile`,
+      contentType,
+      originalname,
     });
+    if (oldPicture) {
+      await this.s3.deleteAsset({ key: oldPicture });
+    }
+    user.profilePicture = key;
     await user.save();
-    return user;
+    return { user, url };
   };
 
   // remove profile image
