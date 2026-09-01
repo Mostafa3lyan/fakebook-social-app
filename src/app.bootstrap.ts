@@ -12,6 +12,7 @@ import { s3Service } from "./common/services";
 import { promisify } from "node:util";
 import { pipeline } from "node:stream";
 import { NotFoundException } from "./common/exceptions";
+import { notificationsRouter } from "./modules/notifications";
 
 const s3WriteStream = promisify(pipeline);
 
@@ -21,12 +22,18 @@ const bootstrap = async () => {
   app.use(express.json(), cors());
 
   //application routing
+  app.use("/auth", authRouter);
+  app.use("/user", userRouter);
+  app.use("/notifications", notificationsRouter);
+  // app.use("/message", messageRouter);
+
+
   app.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     res.send("Hello World! Welcome to Fakebook");
   });
 
   app.get("/uploads/*path", async (req: Request, res: Response, next: NextFunction) => {
-    const { download, fileName } = req.query;    
+    const { download, fileName } = req.query;
     const path = req.params.path as string[];
     const key = path.join("/");
     const { Body, ContentType } = await s3Service.getAsset({ key });
@@ -55,10 +62,6 @@ const bootstrap = async () => {
 
     return successResponse({ res, data: { url } });
   })
-
-  app.use("/auth", authRouter);
-  app.use("/user", userRouter);
-  // app.use("/message", messageRouter);
 
   //invalid routing
   app.use("{/*dummy}", (req: Request, res: Response, next: NextFunction) => {

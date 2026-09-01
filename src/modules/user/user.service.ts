@@ -18,24 +18,34 @@ import {
   REFRESH_TOKEN_EXPIRES_IN,
 } from "../../config/config.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
-import { s3Service, S3Service } from "../../common/services";
+import { notificationsService, NotificationsService, s3Service, S3Service } from "../../common/services";
 
 class UserService {
   private readonly userRepository: UserRepository;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
   private readonly s3: S3Service;
+  private readonly notificationsService: NotificationsService;
 
   constructor() {
     this.userRepository = new UserRepository();
     this.tokenService = new TokenService();
     this.redis = redisService;
     this.s3 = s3Service;
+    this.notificationsService = notificationsService;
   }
 
 
   // get user profile
   public profile = async (user: HydratedDocument<IUser>) => {
+    await this.notificationsService.triggerWorkflow({
+      workflowKey: "welcome-messages",
+      recipients: ["6a3756226cd442ef622414be"],
+      data: {
+        user: "say my name",
+      }
+      ,
+    });
     return user.toJSON();
   };
 
@@ -124,19 +134,14 @@ class UserService {
     return account;
   };
 
+  // upload and remove image url from database handled by AWS Lambda
   // upload profile image
   public profileImage = async ({ contentType, originalname }: { contentType: string, originalname: string }, user: HydratedDocument<IUser>) => {
-    const oldPicture = user.profilePicture;
-    const { url, key } = await this.s3.createPreSignedUrl({
+    const { url } = await this.s3.createPreSignedUrl({
       path: `users/${user._id.toString()}/profile`,
       contentType,
       originalname,
     });
-    if (oldPicture) {
-      await this.s3.deleteAsset({ key: oldPicture });
-    }
-    user.profilePicture = key;
-    await user.save();
     return { user, url };
   };
 
@@ -145,8 +150,7 @@ class UserService {
     if (!user.profilePicture) {
       throw new NotFoundException("There is no profile picture to remove");
     }
-    user.profilePicture = undefined;
-    await user.save();
+    await this.s3.deleteAsset({ key: user.profilePicture });
     return user;
   };
 
@@ -202,6 +206,25 @@ class UserService {
     await this.redis.del(await this.redis.keys(this.redis.revokeTokenPrefix(user._id)));
     return this.tokenService.createLoginCredentials(user, issuer);
   };
+
+  // delete account
+  public deleteAccount = async (user: HydratedDocument<IUser>) => {
+    const account = await this.userRepository.deleteOne({
+      filter: { _id: user._id, force: true },
+    });
+
+    if (!account.deletedCount) {
+      throw new NotFoundException("Account not found");
+    }
+
+    await this.s3.deleteFolderByPrefix({
+      prefix: `users/${user._id.toString()}`,
+    });
+
+    return account;
+  };
+
+
 }
 
 export default new UserService();

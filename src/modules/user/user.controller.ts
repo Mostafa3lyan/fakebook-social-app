@@ -2,8 +2,6 @@ import { Router, type Request, type Response } from "express";
 import { RoleEnum, TokenTypeEnum } from "../../common/enums";
 import { successResponse } from "../../common/response/success.response.js";
 import { decodedTypes } from "../../common/types/user.types.js";
-// import { localFileUpload } from "../../common/utils/multer";
-import { cloudFileUpload, fileFieldValidation } from "../../common/utils/multer";
 import { authentication, authorization } from "../../middleware/index";
 import { validation } from "../../middleware/validation.middleware";
 import userService from "./user.service.js";
@@ -81,6 +79,7 @@ router.post(
 
 
 // add Profile Image
+// handled by s3 presigned url
 router.patch(
   "/profile-image",
   authentication(),
@@ -97,18 +96,18 @@ router.patch(
   },
 );
 
-// // remove Profile Image
-// router.delete(
-//   "/remove-profile-image",
-//   authentication(),
-//   async (req: Request, res: Response) => {
-//     await userService.removeProfileImage(req.user);
-//     return successResponse({
-//       message: "Profile image removed successfully",
-//       res,
-//     });
-//   },
-// );
+// remove Profile Image
+router.delete(
+  "/remove-profile-image",
+  authentication(),
+  async (req: Request, res: Response) => {
+    await userService.removeProfileImage(req.user);
+    return successResponse({
+      message: "Profile image removed successfully",
+      res,
+    });
+  },
+);
 
 // // Add Cover Images
 // router.patch(
@@ -143,5 +142,20 @@ router.patch(
 //     });
 //   },
 // );
+
+
+// delete account
+router.delete(
+  "/delete-account",
+  authentication(),
+  async (req: Request, res: Response) => {
+    await userService.deleteAccount(req.user);
+    return successResponse({
+      message: "account deleted successfully",
+      res,
+    });
+  },
+);
+
 
 export default router;

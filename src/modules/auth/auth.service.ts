@@ -13,7 +13,7 @@ import {
   UnauthorizedException,
 } from "../../common/exceptions/index";
 import { IUser } from "../../common/interfaces";
-import { TokenService } from "../../common/services";
+import { notificationsService, NotificationsService, TokenService } from "../../common/services";
 import { RedisService, redisService } from "../../common/services/redis.service";
 import { createOtp, emailEmitter, magicLinkTemplate, sendEmail } from "../../common/utils/index";
 import {
@@ -29,6 +29,7 @@ class AuthenticationService {
   private readonly userRepository: UserRepository;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
+  private readonly notificationsService: NotificationsService;
 
   private readonly MAX_ATTEMPTS = 3;
   private readonly BLOCK_TTL = 60 * 60; // 1 hour
@@ -36,6 +37,7 @@ class AuthenticationService {
   // constructor
   constructor() {
     this.redis = redisService; // reuse the singleton
+    this.notificationsService = notificationsService;
     this.userRepository = new UserRepository();
     this.tokenService = new TokenService();
   }
