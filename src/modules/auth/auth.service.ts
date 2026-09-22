@@ -298,7 +298,7 @@ class AuthenticationService {
 
   // login
   public async login(data: LoginDto, issuer: string): Promise<ILoginResponse> {
-    const { email, password } = data;
+    const { email, password, fcmToken } = data;
 
     const user = await this.userRepository.findOne({
       filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
@@ -321,6 +321,13 @@ class AuthenticationService {
     if (user.twoFactorVerified) {
       await this.requestTwoFactorAuth(user);
       return { twoFactorRequired: true } as ILoginResponse;
+    }
+
+    if (fcmToken) {
+      await this.notificationsService.sendUserFcmToken(
+        user._id.toString(),
+        fcmToken,
+      );
     }
 
     return this.tokenService.createLoginCredentials(user, issuer);

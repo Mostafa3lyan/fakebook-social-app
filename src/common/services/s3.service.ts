@@ -154,7 +154,7 @@ export class S3Service {
 
       filesUrls = data.map((data) => data.Key as string);
     } else {
-      await Promise.all(
+      filesUrls = await Promise.all(
         files.map((file) =>
           this.uploadAsset({
             storageApproach,

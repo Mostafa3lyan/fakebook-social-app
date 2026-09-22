@@ -101,10 +101,13 @@ export class NotificationsService {
   };
 
   // Sends a Knock push notification to a user
-  public notifyNewMessage = async (
+  public notifyNewMessage = async ({
+    recipientId,
+    message,
+  }: {
     recipientId: string,
     message: string,
-  ) => {
+  }) => {
     return this.triggerWorkflow({
       workflowKey: "welcome-messages",
       recipients: [recipientId],

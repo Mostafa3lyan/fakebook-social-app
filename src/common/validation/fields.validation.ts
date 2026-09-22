@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { calculateAge } from "../utils";
+import { Types } from "mongoose";
 
 const MIN_AGE = 13;
 
@@ -32,6 +33,10 @@ export const dateOfBirth = z.coerce
   .refine((d) => calculateAge(d) >= MIN_AGE, { message: `You must be at least ${MIN_AGE} years old` });
 
 export const id = z.string("id is required").regex(/^[0-9a-fA-F]{24}$/, "invalid id");
+export const objectId = z
+  .string()
+  .refine((val) => Types.ObjectId.isValid(val), { message: "Invalid ObjectId" })
+  .transform((val) => new Types.ObjectId(val))
 
 // Loose so multer's own extras (buffer, path, finalPath, ...) survive parsing.
 export const file = (allowedMimetypes: string[]) =>
@@ -40,4 +45,10 @@ export const file = (allowedMimetypes: string[]) =>
     originalname: z.string(),
     mimetype: z.string().refine((mimetype) => allowedMimetypes.includes(mimetype), "invalid file format"),
     size: z.number().positive(),
+    path: z.string().optional(),
+    buffer: z.instanceof(Buffer).optional(),
+  }).superRefine((data, ctx) => {
+    if (!data.path && !data.buffer) {
+      ctx.addIssue({ code: "custom", message: "buffer is required", path: ["buffer"] });
+    }
   });

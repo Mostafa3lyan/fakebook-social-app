@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { LogoutEnum } from "../../common/enums";
 import { fileFieldValidation } from "../../common/utils/multer";
-import { file, id, password } from "../../common/validation";
+import { file, objectId, password } from "../../common/validation";
 
 // Schemas
 export const logoutSchema = {
@@ -12,7 +12,7 @@ export const logoutSchema = {
 };
 
 export const shareProfile = {
-  params: z.object({ userId: id }),
+  params: objectId,
 };
 
 export const profileImage = {

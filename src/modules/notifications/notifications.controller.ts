@@ -11,7 +11,6 @@ router.post("/fcm-token",
   async (req: Request, res: Response) => {
     const { token } = req.body;
 
-    console.log("FCM token:", token);
     await notificationsService.sendUserFcmToken(
       req.user.id,
       token,

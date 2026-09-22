@@ -7,6 +7,7 @@ export const loginSchema = {
   body: z.object({
     email,
     password,
+    fcmToken: z.string().optional(),
   }),
 }
 export const signupSchema = {

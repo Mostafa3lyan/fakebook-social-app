@@ -10,6 +10,17 @@ export const validation = (schema: SchemaType) => {
     const issues: issuesType = [];
     const parsed: Partial<Record<keyReqType, unknown>> = {};
 
+    // Multer keeps uploaded files off `req.body` (on `req.file`/`req.files`
+    // instead), so a `body` schema that validates an `attachments` field would
+    // never see them. If this route has a `body` schema and files were
+    // uploaded, merge them into `req.body` before parsing so the schema can
+    // see them.
+    if (schema.body && (req.files || req.file)) {
+      req.body ??= {};
+      if (req.files) req.body.attachments = req.files;
+      if (req.file) req.body.attachments = req.file;
+    }
+
     for (const key of Object.keys(schema) as keyReqType[]) {
       if (!schema[key]) continue; // Skip if no schema for this key
 
