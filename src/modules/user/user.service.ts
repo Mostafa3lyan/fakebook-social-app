@@ -170,6 +170,7 @@ class UserService {
     const account = await this.userRepository.findOne({
       filter: { _id: user._id },
       projection: "+password +oldPasswords",
+      options: { lean: false },
     });
 
     if (!account) {

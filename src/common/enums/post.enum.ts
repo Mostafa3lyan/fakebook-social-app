@@ -1,5 +1,5 @@
 
-export enum PostVisibility {
+export enum PostVisibilityEnum {
   PUBLIC = 'public',
   FRIENDS = 'friends',
   ONLY_ME = 'only_me',

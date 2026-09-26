@@ -52,3 +52,14 @@ export const file = (allowedMimetypes: string[]) =>
       ctx.addIssue({ code: "custom", message: "buffer is required", path: ["buffer"] });
     }
   });
+
+export const paginationValidationSchema = {
+  query: z.strictObject({
+    page: z.coerce.number().optional(),
+    limit: z.coerce.number().optional(),
+    search: z.string().optional(),
+  }),
+}
+
+
+export type PaginationDto = z.infer<typeof paginationValidationSchema.query>;

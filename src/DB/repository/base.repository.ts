@@ -12,8 +12,12 @@ import type {
   ProjectionType,
   UpdateQuery,
   FlattenMaps,
+  AggregateOptions,
 } from "mongoose";
 import { BadRequestException } from "../../common/exceptions";
+import { PipelineStage } from "mongoose";
+import { MongooseBulkWriteOptions } from "mongoose";
+import { IPagination } from "../../common/interfaces";
 
 type UpdateQueryOptions<T> = NonNullable<Parameters<Model<T>["updateOne"]>[2]>;
 type DeleteQueryOptions<T> = NonNullable<Parameters<Model<T>["deleteOne"]>[1]>;
@@ -28,6 +32,7 @@ export abstract class DatabaseRepository<TRawDoc> {
   /**
    * Overload 1 — single document.
    * Pass a single `data` object → returns one `HydratedDocument`.
+   * Accepts optional `CreateOptions` (e.g. `{ session }` for transactions).
    *
    * Overload 2 — multiple documents.
    * Pass an array of `data` objects → returns `HydratedDocument[]`.
@@ -38,6 +43,7 @@ export abstract class DatabaseRepository<TRawDoc> {
    */
   async create(args: {
     data: Partial<TRawDoc>;
+    options?: CreateOptions;
   }): Promise<HydratedDocument<TRawDoc>>;
 
   async create(args: {
@@ -91,18 +97,21 @@ export abstract class DatabaseRepository<TRawDoc> {
   /**
    * Find a document by its `_id`.
    *
-   * Overload 1 — `lean: true`
-   * Returns a plain JS object (`FlattenMaps<TRawDoc>`). Faster, no Mongoose
-   * overhead. Use when you only need to read data (e.g. API responses).
+   * Defaults to `lean: true` — returns a plain JS object (`FlattenMaps<TRawDoc>`)
+   * unless you explicitly pass `{ lean: false }`.
    *
-   * Overload 2 — default (no lean / `lean: false`)
+   * Overload 1 — default (no `options.lean`, or `lean: true`)
+   * Returns a plain JS object. Faster, no Mongoose overhead. Use when you only
+   * need to read data (e.g. API responses).
+   *
+   * Overload 2 — `lean: false`
    * Returns a full `HydratedDocument` with Mongoose methods (`save`, virtuals,
    * middleware). Use when you need to mutate and save the document.
    *
    * @param id         - The document `_id` as a string.
    * @param projection - Fields to include/exclude, e.g. `{ password: 0 }`.
    * @param populate   - Relation(s) to populate, e.g. `"role"` or `[{ path: "role" }]`.
-   * @param options    - Additional QueryOptions. Pass `{ lean: true }` to get a plain object.
+   * @param options    - Additional QueryOptions. Pass `{ lean: false }` to get a hydrated document.
    */
   async findById({
     id,
@@ -113,7 +122,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     id: string;
     projection?: ProjectionType<TRawDoc>;
     populate?: string | PopulateOptions | PopulateOptions[];
-    options: QueryOptions<TRawDoc> & { lean: true };
+    options?: QueryOptions<TRawDoc> & { lean?: true };
   }): Promise<FlattenMaps<TRawDoc> | null>;
 
   async findById({
@@ -125,7 +134,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     id: string;
     projection?: ProjectionType<TRawDoc>;
     populate?: string | PopulateOptions | PopulateOptions[];
-    options?: QueryOptions<TRawDoc> & { lean?: false };
+    options: QueryOptions<TRawDoc> & { lean: false };
   }): Promise<HydratedDocument<TRawDoc> | null>;
 
   async findById({
@@ -139,7 +148,8 @@ export abstract class DatabaseRepository<TRawDoc> {
     populate?: string | PopulateOptions | PopulateOptions[];
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
-    let query = this.model.findById(id, projection, options);
+    const resolvedOptions = { lean: true, ...options };
+    let query = this.model.findById(id, projection, resolvedOptions);
     if (populate) query = query.populate(populate as any);
     return query.exec();
   }
@@ -147,17 +157,20 @@ export abstract class DatabaseRepository<TRawDoc> {
   /**
    * Find the first document matching the filter.
    *
-   * Overload 1 — `lean: true`
+   * Defaults to `lean: true` — returns a plain JS object unless you
+   * explicitly pass `{ lean: false }`.
+   *
+   * Overload 1 — default (no `options.lean`, or `lean: true`)
    * Returns a plain JS object. Skips Mongoose document overhead.
    * Best for read-only use cases (transformations, API serialization).
    *
-   * Overload 2 — default (no lean / `lean: false`)
+   * Overload 2 — `lean: false`
    * Returns a `HydratedDocument`. Use when you need `.save()` or virtuals.
    *
    * @param filter     - MongoDB query filter, e.g. `{ email: "x@y.com" }`.
    * @param projection - Fields to include/exclude, e.g. `{ password: 0 }`.
    * @param populate   - Relation(s) to populate.
-   * @param options    - Additional QueryOptions. Pass `{ lean: true }` to get a plain object.
+   * @param options    - Additional QueryOptions. Pass `{ lean: false }` to get a hydrated document.
    */
   async findOne({
     filter,
@@ -168,7 +181,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     filter: QueryFilter<TRawDoc>;
     projection?: ProjectionType<TRawDoc>;
     populate?: string | PopulateOptions | PopulateOptions[];
-    options: QueryOptions<TRawDoc> & { lean: true };
+    options?: QueryOptions<TRawDoc> & { lean?: true };
   }): Promise<FlattenMaps<TRawDoc> | null>;
 
   async findOne({
@@ -180,7 +193,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     filter: QueryFilter<TRawDoc>;
     projection?: ProjectionType<TRawDoc>;
     populate?: string | PopulateOptions | PopulateOptions[];
-    options?: QueryOptions<TRawDoc> & { lean?: false };
+    options: QueryOptions<TRawDoc> & { lean: false };
   }): Promise<HydratedDocument<TRawDoc> | null>;
 
   async findOne({
@@ -194,7 +207,8 @@ export abstract class DatabaseRepository<TRawDoc> {
     populate?: string | PopulateOptions | PopulateOptions[];
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
-    let query = this.model.findOne(filter, projection, options);
+    const resolvedOptions = { lean: true, ...options };
+    let query = this.model.findOne(filter, projection, resolvedOptions);
     if (populate) query = query.populate(populate as any);
     return query.exec();
   }
@@ -202,11 +216,14 @@ export abstract class DatabaseRepository<TRawDoc> {
   /**
    * Find all documents matching the filter.
    *
-   * Overload 1 — `lean: true`
+   * Defaults to `lean: true` — returns plain JS objects unless you
+   * explicitly pass `{ lean: false }`.
+   *
+   * Overload 1 — default (no `options.lean`, or `lean: true`)
    * Returns plain JS objects. Much faster for large result sets since
    * Mongoose skips document instantiation and middleware.
    *
-   * Overload 2 — default (no lean / `lean: false`)
+   * Overload 2 — `lean: false`
    * Returns `HydratedDocument[]`. Use when you need Mongoose methods on results.
    *
    * @param filter     - MongoDB query filter.
@@ -215,7 +232,7 @@ export abstract class DatabaseRepository<TRawDoc> {
    * @param sort       - Sort order, e.g. `{ createdAt: -1 }`.
    * @param limit      - Maximum number of documents to return.
    * @param skip       - Number of documents to skip (use with `limit` for pagination).
-   * @param options    - Additional QueryOptions. Pass `{ lean: true }` to get plain objects.
+   * @param options    - Additional QueryOptions. Pass `{ lean: false }` to get hydrated documents.
    */
   async find({
     filter,
@@ -232,7 +249,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     sort?: Record<string, 1 | -1>;
     limit?: number;
     skip?: number;
-    options: QueryOptions<TRawDoc> & { lean: true };
+    options?: QueryOptions<TRawDoc> & { lean?: true };
   }): Promise<FlattenMaps<TRawDoc>[]>;
 
   async find({
@@ -250,7 +267,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     sort?: Record<string, 1 | -1>;
     limit?: number;
     skip?: number;
-    options?: QueryOptions<TRawDoc> & { lean?: false };
+    options: QueryOptions<TRawDoc> & { lean: false };
   }): Promise<HydratedDocument<TRawDoc>[]>;
 
   async find({
@@ -270,7 +287,8 @@ export abstract class DatabaseRepository<TRawDoc> {
     skip?: number;
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
-    let query = this.model.find(filter, projection, options);
+    const resolvedOptions = { lean: true, ...options };
+    let query = this.model.find(filter, projection, resolvedOptions);
     if (populate) query = query.populate(populate as any);
     if (sort) query = query.sort(sort);
     if (limit !== undefined) query = query.limit(limit);
@@ -279,18 +297,138 @@ export abstract class DatabaseRepository<TRawDoc> {
   }
 
   /**
+    * Paginate documents matching the filter.
+    * Runs `find` and `countDocuments` concurrently and returns both the page
+    * of results and pagination metadata.
+    *
+    * Pass no `page` to skip pagination entirely — every matching document is
+    * returned in `data` (still respecting `sort`), and only `data`/`total`
+    * are populated; `page`, `limit`, `totalPages`, `hasNextPage` and
+    * `hasPrevPage` come back `undefined`. Useful for internal/admin calls
+    * that want the full list without inventing a fake page size.
+    *
+    * Defaults to `lean: true` — returns plain JS objects unless you
+    * explicitly pass `{ lean: false }` to get hydrated Mongoose documents.
+    *
+    * Overload 1 — default (no `options.lean`, or `lean: true`)
+    * Returns plain JS objects in `data`.
+    *
+    * Overload 2 — `lean: false`
+    * Returns `HydratedDocument[]` in `data`. Use when you need `.save()` or virtuals.
+    *
+    * @param filter     - MongoDB query filter.
+    * @param projection - Fields to include/exclude.
+    * @param populate   - Relation(s) to populate.
+    * @param sort       - Sort order, e.g. `{ createdAt: -1 }`.
+    * @param page       - 1-indexed page number. Omit to return all documents unpaginated.
+    * @param limit      - Documents per page. Defaults to `10` when `page` is given.
+    * @param options    - Additional QueryOptions. Pass `{ lean: false }` to get hydrated documents.
+    */
+  async paginate({
+    filter,
+    projection,
+    populate,
+    sort,
+    page,
+    limit,
+    options,
+  }: {
+    filter: QueryFilter<TRawDoc>;
+    projection?: ProjectionType<TRawDoc>;
+    populate?: string | PopulateOptions | PopulateOptions[];
+    sort?: Record<string, 1 | -1>;
+    page?: number | undefined;
+    limit?: number | undefined;
+    options?: QueryOptions<TRawDoc> & { lean?: true };
+  }): Promise<IPagination<FlattenMaps<TRawDoc>>>;
+
+  async paginate({
+    filter,
+    projection,
+    populate,
+    sort,
+    page,
+    limit,
+    options,
+  }: {
+    filter: QueryFilter<TRawDoc>;
+    projection?: ProjectionType<TRawDoc>;
+    populate?: string | PopulateOptions | PopulateOptions[];
+    sort?: Record<string, 1 | -1>;
+    page?: number | undefined;
+    limit?: number | undefined;
+    options: QueryOptions<TRawDoc> & { lean: false };
+  }): Promise<IPagination<HydratedDocument<TRawDoc>>>;
+
+  async paginate({
+    filter,
+    projection,
+    populate,
+    sort,
+    page,
+    limit,
+    options,
+  }: {
+    filter: QueryFilter<TRawDoc>;
+    projection?: ProjectionType<TRawDoc>;
+    populate?: string | PopulateOptions | PopulateOptions[];
+    sort?: Record<string, 1 | -1>;
+    page?: number | undefined;
+    limit?: number | undefined;
+    options?: QueryOptions<TRawDoc>;
+  }): Promise<any> {
+    const resolvedOptions = { lean: true, ...options };
+
+    const isPaginated = page !== undefined;
+    const safePage = isPaginated ? Math.max(1, page) : undefined;
+    const safeLimit = isPaginated ? Math.max(1, limit ?? 10) : undefined;
+    const skip = isPaginated ? (safePage! - 1) * safeLimit! : undefined;
+
+    let query = this.model.find(filter, projection, resolvedOptions);
+    if (populate) query = query.populate(populate as any);
+    if (sort) query = query.sort(sort);
+    if (isPaginated) query = query.skip(skip!).limit(safeLimit!);
+
+    const [data, total] = await Promise.all([
+      query.exec(),
+      this.model.countDocuments(filter, resolvedOptions as any),
+    ]);
+
+    if (!isPaginated) {
+      return { data, total };
+    }
+
+    const totalPages = Math.ceil(total / safeLimit!) || 0;
+
+    return {
+      data,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      totalPages,
+      hasNextPage: safePage! < totalPages,
+      hasPrevPage: safePage! > 1,
+    };
+  }
+
+  /**
    * Check whether a document matching the filter exists.
    * More efficient than `findOne` — only fetches `_id`, no full document load.
    *
-   * @param filter - MongoDB query filter.
+   * @param filter  - MongoDB query filter.
+   * @param options - Additional QueryOptions, e.g. `{ session }`.
    * @returns `{ _id }` if found, `null` otherwise.
    */
   async exists({
     filter,
+    options,
   }: {
     filter: QueryFilter<TRawDoc>;
+    options?: QueryOptions<TRawDoc>;
   }): Promise<Pick<mongo.Document, "_id"> | null> {
-    return this.model.exists(filter);
+    const query = this.model.exists(filter);
+    if (options) query.setOptions(options as any);
+    return query;
   }
 
   /**
@@ -298,13 +436,35 @@ export abstract class DatabaseRepository<TRawDoc> {
    * Uses `countDocuments` which respects the filter (unlike `estimatedDocumentCount`).
    *
    * @param filter  - MongoDB query filter.
+   * @param options - Additional QueryOptions, e.g. `{ session }`.
    */
   async countDocuments({
     filter,
+    options,
   }: {
     filter: QueryFilter<TRawDoc>;
+    options?: QueryOptions<TRawDoc>;
   }): Promise<number> {
-    return this.model.countDocuments(filter);
+    return this.model.countDocuments(filter, options as any);
+  }
+
+  /**
+   * Run an aggregation pipeline against the collection.
+   * Always returns plain objects — Mongoose never hydrates aggregation output.
+   *
+   * @param pipeline - Aggregation pipeline stages.
+   * @param options  - Aggregate options, e.g. `{ session, collation }`.
+   */
+  async aggregate<TResult = any>({
+    pipeline,
+    options,
+  }: {
+    pipeline: PipelineStage[];
+    options?: AggregateOptions;
+  }): Promise<TResult[]> {
+    const aggregation = this.model.aggregate<TResult>(pipeline);
+    if (options) aggregation.option(options);
+    return aggregation.exec();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -476,5 +636,26 @@ export abstract class DatabaseRepository<TRawDoc> {
     options?: DeleteQueryOptions<TRawDoc>;
   }): Promise<mongo.DeleteResult> {
     return this.model.deleteMany(filter, { ...options });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ─── Bulk ──────────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Execute multiple write operations (insert/update/delete) in a single
+   * round trip. Use for batch operations where per-document overhead matters.
+   *
+   * @param operations - Array of bulk write operations.
+   * @param options    - Additional bulk write options, e.g. `{ session, ordered }`.
+   */
+  async bulkWrite({
+    operations,
+    options,
+  }: {
+    operations: mongo.AnyBulkWriteOperation[];
+    options?: mongo.BulkWriteOptions & MongooseBulkWriteOptions;
+  }): Promise<mongo.BulkWriteResult> {
+    return this.model.bulkWrite<TRawDoc>(operations as any, options);
   }
 }

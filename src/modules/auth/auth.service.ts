@@ -128,6 +128,7 @@ class AuthenticationService {
 
     const account = await this.userRepository.findOne({
       filter: { email, emailConfirmedAt: { $exists: false }, provider: ProviderEnum.System },
+      options: { lean: false },
     });
     if (!account) {
       throw new NotFoundException("cannot find account with this email");
@@ -205,6 +206,7 @@ class AuthenticationService {
 
     const account = await this.userRepository.findOne({
       filter: { email, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
+      options: { lean: false },
     });
     if (!account) {
       throw new NotFoundException("Cannot find account with this email");
@@ -238,6 +240,7 @@ class AuthenticationService {
 
     const account = await this.userRepository.findOne({
       filter: { _id: payload.userId, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
+      options: { lean: false },
     });
     if (!account) {
       throw new NotFoundException("Cannot find account");
@@ -262,6 +265,7 @@ class AuthenticationService {
 
     const account = await this.userRepository.findOne({
       filter: { email, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
+      options: { lean: false },
     });
     if (!account) {
       throw new NotFoundException("Cannot find account with this email");

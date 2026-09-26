@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { GenderEnum, ProviderEnum, RoleEnum } from "../enums";
 
 // `exactOptionalPropertyTypes` is enabled, so `field?: T` forbids assigning
@@ -29,6 +30,7 @@ export interface IUser {
   oldPasswords?: string[];
 
   profileVisits?: number | undefined;
+  friends?: IUser[] | Types.ObjectId[]
 
   /** Required for system signups, absent for Google accounts. */
   gender?: GenderEnum;

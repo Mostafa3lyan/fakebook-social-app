@@ -5,6 +5,7 @@ import { postService } from "./post.service";
 import { RoleEnum } from "../../common/enums";
 import * as validators from "./post.validation.js";
 import { cloudFileUpload, fileFieldValidation } from "../../common/utils/multer";
+import { PaginationDto, paginationValidationSchema } from "../../common/validation";
 
 // post.controller.ts
 
@@ -17,7 +18,7 @@ router.post(
   cloudFileUpload({ validation: fileFieldValidation.image }).array("attachments", 10),
   validation(validators.createPostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.createPost({ dto: req.body, files: req.files as Express.Multer.File[], user: req.user });
+    const post = await postService.createPost(req.body, req.files as Express.Multer.File[], req.user);
     return successResponse({ res, status: 201, data: { post } });
   },
 );
@@ -26,9 +27,10 @@ router.post(
 router.get(
   "/",
   authentication(),
+  validation(paginationValidationSchema),
   async (req: Request, res: Response) => {
-    const { posts, meta } = await postService.getPosts({ query: req.query as any });
-    return successResponse({ res, data: { posts, meta } });
+    const posts = await postService.getPosts(req.query as PaginationDto,  req.user );
+    return successResponse({ res, data: { posts } });
   },
 );
 

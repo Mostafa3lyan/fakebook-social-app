@@ -156,6 +156,7 @@ export class TokenService {
 
     const user = await this.UserRepository.findOne({
       filter: { _id: verifiedData.sub },
+      options: { lean: false },
     });
 
     if (!user) {

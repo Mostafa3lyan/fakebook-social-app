@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { PostVisibility, ReactionType } from "../enums";
+import { PostVisibilityEnum, ReactionType } from "../enums";
 import { IUser } from "./user.interface";
 
 export interface IPost {
@@ -9,9 +9,9 @@ export interface IPost {
 
   createdBy: Types.ObjectId | IUser;
   updatedBy: Types.ObjectId | IUser;
-  
-  visibility: PostVisibility;
-  taggedUserIds?: Types.ObjectId[] | IUser[] | undefined;
+
+  visibility: PostVisibilityEnum;
+  tags?: Types.ObjectId[] | IUser[] | undefined;
 
   location?: {
     name: string;

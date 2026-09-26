@@ -3,9 +3,11 @@ import { HydratedDocument, Types } from "mongoose";
 import { PostRepository, UserRepository } from "../../DB/repository";
 import { NotFoundException } from "../../common/exceptions";
 import { notificationsService, NotificationsService, redisService, RedisService, s3Service, S3Service, TokenService } from "../../common/services";
-import { CreatePostDto, QueryPostDto, UpdatePostDto } from "./post.validation";
+import { CreatePostDto, UpdatePostDto } from "./post.validation";
 import { randomUUID } from "node:crypto";
-import { IUser } from "../../common/interfaces";
+import { IPagination, IPost, IUser } from "../../common/interfaces";
+import { getVisibility } from "../../common/utils/helpers/post";
+import { PaginationDto } from "../../common/validation";
 
 
 class PostService {
@@ -27,22 +29,22 @@ class PostService {
     this.s3 = s3Service;
   }
 
-  async createPost({ dto, files, user }: { dto: CreatePostDto; files: Express.Multer.File[]; user: HydratedDocument<IUser> }) {
-    const { content, visibility, taggedUserIds, location } = dto;
+  async createPost(dto: CreatePostDto, files: Express.Multer.File[], user: HydratedDocument<IUser>) {
+    const { content, visibility, tags, location } = dto;
 
     const mentions: Types.ObjectId[] = [];
 
-    if (taggedUserIds?.length) {
+    if (tags?.length) {
       const mentionedAccounts = await this.userRepository.find({
-        filter: { _id: { $in: taggedUserIds } },
+        filter: { _id: { $in: tags } },
         options: { lean: true },
       });
 
-      if (mentionedAccounts.length !== taggedUserIds.length) {
+      if (mentionedAccounts.length !== tags.length) {
         throw new NotFoundException("One or more tagged users not found");
       }
 
-      for (const tag of taggedUserIds) {
+      for (const tag of tags) {
         mentions.push(tag);
       }
     }
@@ -61,7 +63,7 @@ class PostService {
         createdBy: user._id,
         content,
         visibility,
-        taggedUserIds: mentions,
+        tags: mentions,
         location,
         folderId,
         attachments,
@@ -90,31 +92,19 @@ class PostService {
     return post;
   }
 
-  async getPosts({ query }: { query: QueryPostDto }) {
-    const { folderId, createdBy, page = 1, limit = 20 } = query;
+  async getPosts({ page, limit, search }: PaginationDto, user: HydratedDocument<IUser>): Promise<IPagination<IPost>> {
+    const posts = await this.postRepository.paginate({
+      filter: {
+        $or: getVisibility(user),
+        ...(search && { content: { $regex: search, $options: "i" } }),
+      },
+      populate: [{ path: "createdBy", select: "firstName lastName profilePicture createdAt" }],
+      page,
+      limit,
+      sort: { createdAt: -1 },
+    });
 
-    const filter: Record<string, unknown> = {};
-    if (folderId) filter.folderId = folderId;
-    if (createdBy) filter.createdBy = createdBy;
-
-    const skip = (page - 1) * limit;
-
-    const [posts, total] = await Promise.all([
-      this.postRepository.find({
-        filter,
-        sort: { createdAt: -1 },
-        limit,
-        skip,
-        populate: [{ path: "createdBy", select: "firstName lastName profilePicture" }],
-        options: { lean: true },
-      }),
-      this.postRepository.countDocuments({ filter }),
-    ]);
-
-    return {
-      posts,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    };
+    return posts;
   }
 
   async getPostById({ postId }: { postId: string }) {

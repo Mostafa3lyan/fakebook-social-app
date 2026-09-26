@@ -1,8 +1,8 @@
 // post.validation.ts
 import { z } from "zod";
-import { PostVisibility } from "../../common/enums";
 import { file, objectId } from "../../common/validation";
 import { fileFieldValidation } from "../../common/utils/multer";
+import { PostVisibilityEnum } from "../../common/enums";
 
 const locationSchema = z.object({
   name: z.string().min(1).max(200),
@@ -14,8 +14,8 @@ const createPostBody = z
   .object({
     content: z.string().max(63206).trim().optional(),
     attachments: z.array(file(fileFieldValidation.image)).max(10).optional(),
-    visibility: z.enum(PostVisibility).default(PostVisibility.PUBLIC),
-    taggedUserIds: z.array(objectId).max(50).optional(),
+    visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
+    tags: z.array(objectId).max(50).optional(),
     location: locationSchema.optional(),
   })
   .superRefine((data, ctx) => {
@@ -27,13 +27,13 @@ const createPostBody = z
       });
     }
 
-    if (data.taggedUserIds?.length) {
-      const uniqueTaggedUserIds = new Set(data.taggedUserIds.map((id) => id.toString()));
-      if (uniqueTaggedUserIds.size !== data.taggedUserIds.length) {
+    if (data.tags?.length) {
+      const uniquetags = new Set(data.tags.map((id) => id.toString()));
+      if (uniquetags.size !== data.tags.length) {
         ctx.addIssue({
           code: "custom",
           message: "Tagged user IDs must be unique",
-          path: ["taggedUserIds"],
+          path: ["tags"],
         });
       }
     }
@@ -44,8 +44,8 @@ const updatePostBody = z
   .object({
     content: z.string().max(63206).trim(),
     attachments: z.array(file(fileFieldValidation.image)).max(10),
-    visibility: z.enum(PostVisibility).default(PostVisibility.PUBLIC),
-    taggedUserIds: z.array(objectId).max(50),
+    visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
+    tags: z.array(objectId).max(50),
     location: locationSchema,
   })
   .refine((data) => Object.keys(data).length > 0, {

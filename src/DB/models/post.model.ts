@@ -1,5 +1,5 @@
 import { Model, model, Schema } from "mongoose";
-import { PostVisibility, ReactionType } from "../../common/enums/index";
+import { PostVisibilityEnum, ReactionType } from "../../common/enums/index";
 import { IPost, IReaction, IComment, ISharedPost } from "../../common/interfaces/index";
 
 const ReactionSchema = new Schema<IReaction>(
@@ -63,10 +63,10 @@ const postSchema = new Schema<IPost, Model<IPost>>(
 
     visibility: {
       type: String,
-      enum: Object.values(PostVisibility),
-      default: PostVisibility.PUBLIC,
+      enum: Object.values(PostVisibilityEnum),
+      default: PostVisibilityEnum.PUBLIC,
     },
-    taggedUserIds: {
+    tags: {
       type: [Schema.Types.ObjectId],
       ref: "User",
       default: [],
