@@ -29,7 +29,7 @@ router.get(
   authentication(),
   validation(paginationValidationSchema),
   async (req: Request, res: Response) => {
-    const posts = await postService.getPosts(req.query as PaginationDto,  req.user );
+    const posts = await postService.getPosts(req.query as PaginationDto, req.user);
     return successResponse({ res, data: { posts } });
   },
 );
@@ -39,7 +39,7 @@ router.get(
   "/:id",
   authentication(),
   async (req: Request, res: Response) => {
-    const post = await postService.getPostById({ postId: req.params.id as string });
+    const post = await postService.getPostById(req.params.id as string);
     return successResponse({ res, data: { post } });
   },
 );
@@ -57,6 +57,17 @@ router.patch(
     });
     return successResponse({ res, data: { post } });
   },
+);
+
+// React at post
+router.post(
+  "/:id/react",
+  authentication(),
+  validation(validators.reactAtPostSchema),
+  async (req: Request, res: Response) => {
+    const post = await postService.reactAtPost(req.body, req.params as validators.ReactAtPostParamsDto, req.user);
+    return successResponse({ res, data: { post } });
+  }
 );
 
 // Soft delete

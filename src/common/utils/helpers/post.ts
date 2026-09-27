@@ -10,3 +10,8 @@ export const getVisibility = (user: HydratedDocument<IUser>) => {
     { tags: { $in: [user._id] } }
   ]
 }
+
+
+export function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

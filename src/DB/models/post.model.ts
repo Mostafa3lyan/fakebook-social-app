@@ -1,13 +1,13 @@
 import { Model, model, Schema } from "mongoose";
-import { PostVisibilityEnum, ReactionType } from "../../common/enums/index";
+import { PostVisibilityEnum, ReactionTypeEnum } from "../../common/enums/index";
 import { IPost, IReaction, IComment, ISharedPost } from "../../common/interfaces/index";
 
 const ReactionSchema = new Schema<IReaction>(
   {
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    type: {
+    reactionType: {
       type: String,
-      enum: Object.values(ReactionType),
+      enum: Object.values(ReactionTypeEnum),
       required: true,
     },
     createdAt: { type: Date, default: Date.now },
@@ -79,6 +79,12 @@ const postSchema = new Schema<IPost, Model<IPost>>(
     },
 
     reactions: { type: [ReactionSchema], default: [] },
+    reactionsCount: { type: Number, default: 0, min: 0 },
+    reactionsBreakdown: {
+      type: Schema.Types.Mixed,
+      of: Number,
+      default: {},
+    },
     comments: { type: [CommentSchema], default: [] },
     sharedFrom: { type: SharedPostSchema },
     shareCount: { type: Number, default: 0, min: 0 },

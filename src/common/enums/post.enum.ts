@@ -5,7 +5,7 @@ export enum PostVisibilityEnum {
   ONLY_ME = 'only_me',
 }
 
-export enum ReactionType {
+export enum ReactionTypeEnum {
   LIKE = 'like',
   LOVE = 'love',
   CARE = 'care',

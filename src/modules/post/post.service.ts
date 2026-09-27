@@ -1,12 +1,12 @@
 // post.service.ts
-import { HydratedDocument, Types } from "mongoose";
+import { FlattenMaps, HydratedDocument, Types } from "mongoose";
 import { PostRepository, UserRepository } from "../../DB/repository";
 import { NotFoundException } from "../../common/exceptions";
 import { notificationsService, NotificationsService, redisService, RedisService, s3Service, S3Service, TokenService } from "../../common/services";
-import { CreatePostDto, UpdatePostDto } from "./post.validation";
+import { CreatePostDto, ReactAtPostDto, ReactAtPostParamsDto, UpdatePostDto } from "./post.validation";
 import { randomUUID } from "node:crypto";
 import { IPagination, IPost, IUser } from "../../common/interfaces";
-import { getVisibility } from "../../common/utils/helpers/post";
+import { escapeRegex, getVisibility } from "../../common/utils/helpers/post";
 import { PaginationDto } from "../../common/validation";
 
 
@@ -92,13 +92,14 @@ class PostService {
     return post;
   }
 
-  async getPosts({ page, limit, search }: PaginationDto, user: HydratedDocument<IUser>): Promise<IPagination<IPost>> {
+  async getPosts({ page, limit, search }: PaginationDto, user: HydratedDocument<IUser>): Promise<IPagination<FlattenMaps<IPost>>> {
     const posts = await this.postRepository.paginate({
       filter: {
         $or: getVisibility(user),
-        ...(search && { content: { $regex: search, $options: "i" } }),
+        ...(search && { content: { $regex: escapeRegex(search), $options: "i" } }),
       },
-      populate: [{ path: "createdBy", select: "firstName lastName profilePicture createdAt" }],
+      populate: [{ path: "createdBy", select: "firstName lastName profilePicture" }],
+      projection: { reactions: 0, folderId: 0 },
       page,
       limit,
       sort: { createdAt: -1 },
@@ -107,11 +108,11 @@ class PostService {
     return posts;
   }
 
-  async getPostById({ postId }: { postId: string }) {
+  async getPostById(id: string): Promise<FlattenMaps<IPost>> {
     const post = await this.postRepository.findById({
-      id: postId,
+      id,
       populate: [{ path: "createdBy", select: "firstName lastName profilePicture" }],
-      options: { lean: true },
+      projection: { folderId: 0 },
     });
 
     if (!post) throw new NotFoundException("Post not found");
@@ -134,6 +135,51 @@ class PostService {
 
     if (!post) throw new NotFoundException("Post not found");
     return post;
+  }
+
+  async reactAtPost({ reaction }: ReactAtPostDto, { id }: ReactAtPostParamsDto, user: HydratedDocument<IUser>) {
+    const post = await this.postRepository.findById({ id });
+    if (!post) throw new NotFoundException("Post not found");
+
+    const existingReaction = post.reactions?.find(
+      (r) => r.createdBy.toString() === user._id.toString()
+    );
+
+    if (existingReaction?.reactionType === reaction) {
+      await this.postRepository.updateOne({
+        filter: { _id: id },
+        update: {
+          $pull: { reactions: { createdBy: user._id } },
+          $inc: { reactionsCount: -1, [`reactionsBreakdown.${reaction}`]: -1 },
+        },
+      });
+    } else {
+      if (existingReaction) {
+        await this.postRepository.updateOne({
+          filter: { _id: id },
+          update: {
+            $pull: { reactions: { createdBy: user._id } },
+            $inc: { reactionsCount: -1, [`reactionsBreakdown.${existingReaction.reactionType}`]: -1 },
+          },
+        });
+      }
+      await this.postRepository.updateOne({
+        filter: { _id: id },
+        update: {
+          $push: { reactions: { reactionType: reaction, createdBy: user._id, createdAt: new Date() } },
+          $inc: { reactionsCount: 1, [`reactionsBreakdown.${reaction}`]: 1 },
+        },
+      });
+    }
+
+    const updatedPost = await this.postRepository.findById({
+      id,
+      projection: { reactionsCount: 1, reactionsBreakdown: 1 },
+    });
+
+    if (!updatedPost) throw new NotFoundException("Post not found");
+
+    return updatedPost;
   }
 
   async softDeletePost({ postId, userId }: { postId: string; userId: Types.ObjectId }) {

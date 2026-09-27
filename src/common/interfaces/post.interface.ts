@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { PostVisibilityEnum, ReactionType } from "../enums";
+import { PostVisibilityEnum, ReactionTypeEnum } from "../enums";
 import { IUser } from "./user.interface";
 
 export interface IPost {
@@ -20,6 +20,8 @@ export interface IPost {
   } | undefined;
 
   reactions?: IReaction[];
+  reactionsCount: number;
+  reactionsBreakdown: Map<ReactionTypeEnum, number>;
   comments?: IComment[];
   sharedFrom?: ISharedPost;
   shareCount: number;
@@ -33,7 +35,7 @@ export interface IPost {
 
 export interface IReaction {
   createdBy: Types.ObjectId | IUser;
-  type: ReactionType;
+  reactionType: ReactionTypeEnum;
   createdAt: Date;
 }
 

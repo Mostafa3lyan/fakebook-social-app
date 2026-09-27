@@ -188,6 +188,7 @@ class AuthenticationService {
   public forgotPassword = async ({ email, method = "otp" }: { email: string; method?: "otp" | "link" }): Promise<void> => {
     const account = await this.userRepository.findOne({
       filter: { email, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
+      options: { lean: false },
     });
     if (!account) {
       throw new NotFoundException("Cannot find account with this email");
@@ -307,6 +308,7 @@ class AuthenticationService {
     const user = await this.userRepository.findOne({
       filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
       projection: "+password",
+      options: { lean: false },
     });
 
     if (!user) {
@@ -341,6 +343,7 @@ class AuthenticationService {
   public loginConfirm = async ({ email, otp }: EmailOtpDto, issuer: string) => {
     const user = await this.userRepository.findOne({
       filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true } },
+      options: { lean: false },
     });
     if (!user) {
       throw new UnauthorizedException("Email or Password is incorrect");
@@ -477,6 +480,7 @@ class AuthenticationService {
     const payload = await this.verifyGoogleToken(idToken);
     const user = await this.userRepository.findOne({
       filter: { email: payload.email as string, provider: ProviderEnum.Google },
+      options: { lean: false },
     });
     if (!user) {
       throw new NotFoundException("Not registered account");

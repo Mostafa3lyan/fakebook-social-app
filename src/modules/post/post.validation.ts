@@ -1,8 +1,8 @@
 // post.validation.ts
 import { z } from "zod";
-import { file, objectId } from "../../common/validation";
+import { file, id, objectId } from "../../common/validation";
 import { fileFieldValidation } from "../../common/utils/multer";
-import { PostVisibilityEnum } from "../../common/enums";
+import { PostVisibilityEnum, ReactionTypeEnum } from "../../common/enums";
 
 const locationSchema = z.object({
   name: z.string().min(1).max(200),
@@ -10,67 +10,82 @@ const locationSchema = z.object({
   lng: z.number().min(-180).max(180),
 });
 
-const createPostBody = z
-  .object({
-    content: z.string().max(63206).trim().optional(),
-    attachments: z.array(file(fileFieldValidation.image)).max(10).optional(),
-    visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
-    tags: z.array(objectId).max(50).optional(),
-    location: locationSchema.optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (!data.content && (!data.attachments || data.attachments.length === 0)) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Post must have either content or at least one attachment",
-        path: ["content"],
-      });
-    }
+// shared — reused by both updatePostSchema.params and postIdParamSchema.params
+const postIdParams = z.object({
+  id: objectId,
+});
 
-    if (data.tags?.length) {
-      const uniquetags = new Set(data.tags.map((id) => id.toString()));
-      if (uniquetags.size !== data.tags.length) {
+export const createPostSchema = {
+  body: z
+    .object({
+      content: z.string().max(63206).trim().optional(),
+      attachments: z.array(file(fileFieldValidation.image)).max(10).optional(),
+      visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
+      tags: z.array(objectId).max(50).optional(),
+      location: locationSchema.optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (!data.content && (!data.attachments || data.attachments.length === 0)) {
         ctx.addIssue({
           code: "custom",
-          message: "Tagged user IDs must be unique",
-          path: ["tags"],
+          message: "Post must have either content or at least one attachment",
+          path: ["content"],
         });
       }
-    }
-    
-  });
 
-const updatePostBody = z
-  .object({
+      if (data.tags?.length) {
+        const uniqueTags = new Set(data.tags.map((id) => id.toString()));
+        if (uniqueTags.size !== data.tags.length) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Tagged user IDs must be unique",
+            path: ["tags"],
+          });
+        }
+      }
+    }),
+};
+
+export const updatePostSchema = {
+  params: z.object({
+    id: objectId,
+  }),
+  body: z.object({
     content: z.string().max(63206).trim(),
     attachments: z.array(file(fileFieldValidation.image)).max(10),
     visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
     tags: z.array(objectId).max(50),
     location: locationSchema,
-  })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided",
-  });
+  }),
+};
 
-const postIdParams = z.object({
-  id: objectId,
-});
+export const reactAtPostSchema = {
+  params: z.object({
+    id: id,
+  }),
+  body: z.strictObject({
+    reaction: z.enum(ReactionTypeEnum).default(ReactionTypeEnum.LIKE),
+  }),
+};
 
-const queryPostQuery = z.object({
-  folderId: objectId,
-  createdBy: objectId,
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().positive().max(100).default(20),
-});
+export const postIdParamSchema = {
+  params: postIdParams,
+};
 
-export const createPostSchema = { body: createPostBody };
-export const updatePostSchema = { params: postIdParams, body: updatePostBody };
-export const postIdParamSchema = { params: postIdParams };
-export const queryPostSchema = { query: queryPostQuery };
+export const queryPostSchema = {
+  query: z.object({
+    createdBy: objectId,
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+  }),
+};
 
 // ── DTOs, inferred directly from the schemas above ──
-export type CreatePostDto = z.infer<typeof createPostBody>;
-export type UpdatePostDto = z.infer<typeof updatePostBody>;
-export type PostIdParamDto = z.infer<typeof postIdParams>;
-export type QueryPostDto = z.infer<typeof queryPostQuery>;
+export type CreatePostDto = z.infer<typeof createPostSchema.body>;
+export type UpdatePostDto = z.infer<typeof updatePostSchema.body>;
+export type UpdatePostParamsDto = z.infer<typeof updatePostSchema.params>;
+export type ReactAtPostDto = z.infer<typeof reactAtPostSchema.body>;
+export type ReactAtPostParamsDto = z.infer<typeof reactAtPostSchema.params>;
+export type PostIdParamDto = z.infer<typeof postIdParamSchema.params>;
+export type QueryPostDto = z.infer<typeof queryPostSchema.query>;
 export type LocationDto = z.infer<typeof locationSchema>;
