@@ -15,8 +15,8 @@ export interface IPost {
 
   location?: {
     name: string;
-    lat?: number;
-    lng?: number;
+    lat?: number | undefined;
+    lng?: number | undefined;
   } | undefined;
 
   reactions?: IReaction[];

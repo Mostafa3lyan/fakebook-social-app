@@ -1,27 +1,39 @@
 // post.validation.ts
 import { z } from "zod";
-import { file, id, objectId } from "../../common/validation";
-import { fileFieldValidation } from "../../common/utils/multer";
 import { PostVisibilityEnum, ReactionTypeEnum } from "../../common/enums";
+import { fileFieldValidation } from "../../common/utils/multer";
+import { file, id, objectId } from "../../common/validation";
 
 const locationSchema = z.object({
   name: z.string().min(1).max(200),
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
 });
 
-// shared — reused by both updatePostSchema.params and postIdParamSchema.params
-const postIdParams = z.object({
-  id: objectId,
+// shared
+export const postIdParamSchema = z.object({
+  postId: id,
 });
+
+// post.validation.ts
+const jsonArrayField = <T extends z.ZodTypeAny>(itemSchema: T) =>
+  z.preprocess((val) => {
+    if (typeof val !== "string") return val; // already an array (e.g. JSON body) — pass through untouched
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val; // let the inner schema reject it with a proper array-type error
+    }
+  }, z.array(itemSchema));
 
 export const createPostSchema = {
   body: z
     .object({
       content: z.string().max(63206).trim().optional(),
       attachments: z.array(file(fileFieldValidation.image)).max(10).optional(),
-      visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
-      tags: z.array(objectId).max(50).optional(),
+      removeAttachments: jsonArrayField(z.string()).optional(),
+      visibility: z.enum(PostVisibilityEnum),
+      tags: jsonArrayField(objectId).optional(),
       location: locationSchema.optional(),
     })
     .superRefine((data, ctx) => {
@@ -47,45 +59,21 @@ export const createPostSchema = {
 };
 
 export const updatePostSchema = {
-  params: z.object({
-    id: objectId,
-  }),
-  body: z.object({
-    content: z.string().max(63206).trim(),
-    attachments: z.array(file(fileFieldValidation.image)).max(10),
-    visibility: z.enum(PostVisibilityEnum).default(PostVisibilityEnum.PUBLIC),
-    tags: z.array(objectId).max(50),
-    location: locationSchema,
-  }),
+  params: postIdParamSchema,
+  body: createPostSchema.body,
 };
 
 export const reactAtPostSchema = {
-  params: z.object({
-    id: id,
-  }),
+  params: postIdParamSchema,
   body: z.strictObject({
-    reaction: z.enum(ReactionTypeEnum).default(ReactionTypeEnum.LIKE),
+    reaction: z.enum(ReactionTypeEnum),
   }),
 };
 
-export const postIdParamSchema = {
-  params: postIdParams,
-};
-
-export const queryPostSchema = {
-  query: z.object({
-    createdBy: objectId,
-    page: z.coerce.number().int().positive().default(1),
-    limit: z.coerce.number().int().positive().max(100).default(20),
-  }),
-};
 
 // ── DTOs, inferred directly from the schemas above ──
+export type PostIdParamDto = z.infer<typeof postIdParamSchema>;
 export type CreatePostDto = z.infer<typeof createPostSchema.body>;
 export type UpdatePostDto = z.infer<typeof updatePostSchema.body>;
-export type UpdatePostParamsDto = z.infer<typeof updatePostSchema.params>;
 export type ReactAtPostDto = z.infer<typeof reactAtPostSchema.body>;
-export type ReactAtPostParamsDto = z.infer<typeof reactAtPostSchema.params>;
-export type PostIdParamDto = z.infer<typeof postIdParamSchema.params>;
-export type QueryPostDto = z.infer<typeof queryPostSchema.query>;
 export type LocationDto = z.infer<typeof locationSchema>;

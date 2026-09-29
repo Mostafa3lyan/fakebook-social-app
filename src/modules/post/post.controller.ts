@@ -36,43 +36,40 @@ router.get(
 
 // Get single post
 router.get(
-  "/:id",
+  "/:postId",
   authentication(),
   async (req: Request, res: Response) => {
-    const post = await postService.getPostById(req.params.id as string);
+    const post = await postService.getPostById(req.params as validators.PostIdParamDto, req.user);
     return successResponse({ res, data: { post } });
   },
 );
 
 // Update post
 router.patch(
-  "/:id",
+  "/:postId",
   authentication(),
+  cloudFileUpload({ validation: fileFieldValidation.image }).array("attachments", 10),
   validation(validators.updatePostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.updatePost({
-      postId: req.params.id as string,
-      dto: req.body,
-      userId: req.user._id,
-    });
+    const post = await postService.updatePost(req.body, req.files as Express.Multer.File[], req.params as validators.PostIdParamDto, req.user);
     return successResponse({ res, data: { post } });
   },
 );
 
 // React at post
 router.post(
-  "/:id/react",
+  "/:postId/react",
   authentication(),
   validation(validators.reactAtPostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.reactAtPost(req.body, req.params as validators.ReactAtPostParamsDto, req.user);
+    const post = await postService.reactAtPost(req.body, req.params as validators.PostIdParamDto, req.user);
     return successResponse({ res, data: { post } });
   }
 );
 
 // Soft delete
 router.delete(
-  "/:id",
+  "/:postId",
   authentication(),
   async (req: Request, res: Response) => {
     const post = await postService.softDeletePost({ postId: req.params.id as string, userId: req.user._id });
@@ -82,7 +79,7 @@ router.delete(
 
 // Restore
 router.patch(
-  "/:id/restore",
+  "/:postId/restore",
   authentication(),
   async (req: Request, res: Response) => {
     const post = await postService.restorePost({ postId: req.params.id as string, userId: req.user._id });
@@ -92,11 +89,11 @@ router.patch(
 
 // Hard delete (admin only)
 router.delete(
-  "/:id/permanent",
+  "/:postId/permanent",
   authentication(),
   authorization([RoleEnum.Admin]),
   async (req: Request, res: Response) => {
-    const post = await postService.hardDeletePost({ postId: req.params.id as string });
+    const post = await postService.hardDeletePost({ postId: req.params.postId as string });
     return successResponse({ res, data: { post } });
   },
 );
