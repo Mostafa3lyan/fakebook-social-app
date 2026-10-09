@@ -1,11 +1,11 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { RoleEnum, TokenTypeEnum } from "../../common/enums";
-import { successResponse } from "../../common/response/success.response.js";
-import { decodedTypes } from "../../common/types/user.types.js";
-import { authentication, authorization } from "../../middleware/index";
-import { validation } from "../../middleware/validation.middleware";
-import userService from "./user.service.js";
-import * as validators from "./user.validation.js";
+import { successResponse } from "../../common/response";
+import { tokenService } from "../../common/services";
+import { decodedTypes } from "../../common/types/user.types";
+import { authentication, authorization, validation } from "../../middleware";
+import { userService } from "./user.service";
+import * as validators from "./user.validation";
 
 const router = Router();
 
@@ -51,30 +51,30 @@ router.post(
   },
 );
 
-// // Share User Profile
-// router.get(
-//   "/:userId/share-profile",
-//   async (req: Request, res: Response, next: NextFunction) => {
-//     if (req?.headers?.authorization) {
-//       const { user, decoded } = await this.tokenService.decodeToken({
-//         token: req.headers.authorization.split(" ")[1],
-//         tokenType: TokenTypeEnum.access,
-//       });
+// Share User Profile
+router.get(
+  "/:userId/share-profile",
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (req?.headers?.authorization) {
+      const { user, decoded } = await tokenService.decodeToken({
+        token: req.headers.authorization.split(" ")[1] as string,
+        tokenType: TokenTypeEnum.access,
+      });
 
-//       req.user = user;
-//       req.decoded = decoded;
-//     }
-//     return next();
-//   },
-//   validation(validators.shareProfile),
-//   async (req: Request, res: Response) => {
-//     const account = await userService.shareProfile(req.params.userId, req.user);
-//     return successResponse({
-//       res,
-//       data: { account },
-//     });
-//   },
-// );
+      req.user = user;
+      req.decoded = decoded;
+    }
+    return next();
+  },
+  validation(validators.shareProfile),
+  async (req: Request, res: Response) => {
+    const account = await userService.shareProfile(req.params.userId as unknown as validators.ShareProfileDto, req.user);
+    return successResponse({
+      res,
+      data: { account },
+    });
+  },
+);
 
 
 

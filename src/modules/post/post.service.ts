@@ -1,57 +1,78 @@
 // post.service.ts
-import { FlattenMaps, HydratedDocument, Types } from "mongoose";
-import { PostRepository, UserRepository } from "../../DB/repository";
-import { BadRequestException, ForbiddenException, NotFoundException } from "../../common/exceptions";
-import { notificationsService, NotificationsService, redisService, RedisService, s3Service, S3Service, TokenService } from "../../common/services";
-import { CreatePostDto, ReactAtPostDto, PostIdParamDto, UpdatePostDto } from "./post.validation";
 import { randomUUID } from "node:crypto";
+import { FlattenMaps, HydratedDocument, Types } from "mongoose";
+import { CommentRepository, PostRepository } from "../../DB/repository";
+import { BadRequestException, ForbiddenException, NotFoundException } from "../../common/exceptions";
+import { s3Service, S3Service } from "../../common/services";
 import { IPagination, IPost, IUser } from "../../common/interfaces";
-import { escapeRegex, getVisibility } from "../../common/utils/helpers/post";
+import { escapeRegex } from "../../common/utils";
+import {
+  AUTHOR_POPULATE,
+  getVisibility,
+  PostHelper,
+  postHelper,
+} from "./post.helper";
 import { PaginationDto } from "../../common/validation";
-
+import { CreatePostDto, PostIdParamDto, ReactAtPostDto, UpdatePostDto } from "./post.validation";
+import { PostVisibilityEnum, ReactionTypeEnum, RoleEnum } from "../../common/enums";
 
 class PostService {
-  private readonly redis: RedisService;
-  private readonly tokenService: TokenService;
-  private readonly userRepository: UserRepository;
+  private readonly MAX_ATTACHMENTS = 10;
+
   private readonly postRepository: PostRepository;
-  private readonly notificationsService: NotificationsService;
+  private readonly commentRepository: CommentRepository;
   private readonly s3: S3Service;
+  private readonly postHelper: PostHelper;
 
-
-  // constructor
-  constructor() {
-    this.redis = redisService; // reuse the singleton
-    this.tokenService = new TokenService();
-    this.postRepository = new PostRepository();
-    this.userRepository = new UserRepository();
-    this.notificationsService = notificationsService;
-    this.s3 = s3Service;
+  constructor(
+    postRepository = new PostRepository(),
+    commentRepository = new CommentRepository(),
+    s3 = s3Service,
+    postHelperInstance = postHelper,
+  ) {
+    this.postRepository = postRepository;
+    this.commentRepository = commentRepository;
+    this.s3 = s3;
+    this.postHelper = postHelperInstance;
   }
 
-  async createPost(dto: CreatePostDto, files: Express.Multer.File[], user: HydratedDocument<IUser>) {
+  // Private helpers
+
+  private removeReaction(postId: string, userId: Types.ObjectId, reactionType: ReactionTypeEnum) {
+    return this.postRepository.updateOne({
+      filter: { _id: postId },
+      update: {
+        $pull: { reactions: { createdBy: userId } },
+        $inc: { reactionsCount: -1, [`reactionsBreakdown.${reactionType}`]: -1 },
+      },
+    });
+  }
+
+  private addReaction(postId: string, userId: Types.ObjectId, reactionType: string) {
+    return this.postRepository.updateOne({
+      filter: { _id: postId },
+      update: {
+        $push: { reactions: { reactionType, createdBy: userId, createdAt: new Date() } },
+        $inc: { reactionsCount: 1, [`reactionsBreakdown.${reactionType}`]: 1 },
+      },
+    });
+  }
+
+  // Create
+
+  async createPost(dto: CreatePostDto, files: Express.Multer.File[] = [], user: HydratedDocument<IUser>) {
     const { content, visibility, tags, location } = dto;
 
-    const mentions: Types.ObjectId[] = [];
-    if (tags?.length) {
-      const mentionedAccounts = await this.userRepository.find({
-        filter: { _id: { $in: tags } },
-        options: { lean: true },
-      });
-      if (mentionedAccounts.length !== tags.length) {
-        throw new NotFoundException("One or more tagged users not found");
-      }
-      mentions.push(...tags);
+    if (files.length > this.MAX_ATTACHMENTS) {
+      throw new BadRequestException(`Maximum ${this.MAX_ATTACHMENTS} attachments allowed`);
     }
 
+    const mentions = tags?.length ? await this.postHelper.resolveMentions(tags) : [];
+
     const folderId = randomUUID();
-    let attachments: string[] = [];
-    if (files?.length > 10) {
-      throw new BadRequestException("Maximum 10 attachments allowed");
-    }
-    if (files?.length) {
-      attachments = await this.s3.uploadMultipleAssets({ files, path: `posts/${folderId}` });
-    }
+    const attachments = files.length
+      ? await this.s3.uploadMultipleAssets({ files, path: `posts/${folderId}` })
+      : [];
 
     let post: HydratedDocument<IPost>;
     try {
@@ -59,60 +80,62 @@ class PostService {
         data: { createdBy: user._id, content, visibility, tags: mentions, location, folderId, attachments },
       });
     } catch (err) {
-      if (attachments.length) {
-        await this.s3.deleteMultipleAssets({ keys: attachments });
-      }
+      await this.postHelper.safeDeleteAssets(attachments);
       throw err;
     }
 
-    if (mentions.length) {
-      const results = await Promise.allSettled(
-        mentions.map((recipientId) =>
-          this.notificationsService.notifyNewMessage({
-            recipientId: recipientId.toString(),
-            message: `${user.firstName} ${user.lastName} tagged you in a post`,
-          }),
-        ),
-      );
-
-      if (results.some((result) => result.status === "rejected")) {
-        throw new NotFoundException("One or more tagged users not found");
-      }
-    }
+    await this.postHelper.notifyNewlyTagged(undefined, mentions, user, "post");
 
     return post;
   }
 
-  async getPosts({ page, limit, search }: PaginationDto, user: HydratedDocument<IUser>): Promise<IPagination<FlattenMaps<IPost>>> {
-    const posts = await this.postRepository.paginate({
+  // Read
+
+  async getPosts(
+    { page, limit, search }: PaginationDto,
+    user: HydratedDocument<IUser>,
+  ): Promise<IPagination<FlattenMaps<IPost>>> {
+    return this.postRepository.paginate({
       filter: {
         $or: getVisibility(user),
         ...(search && { content: { $regex: escapeRegex(search), $options: "i" } }),
       },
-      populate: [{ path: "createdBy", select: "firstName lastName profilePicture" }],
-      projection: { reactions: 0, folderId: 0 },
+      populate: AUTHOR_POPULATE,
+      projection: { reactions: 0, comments: 0 },
       page,
       limit,
       sort: { createdAt: -1 },
     });
-
-    return posts;
   }
 
   async getPostById({ postId }: PostIdParamDto, user: HydratedDocument<IUser>): Promise<FlattenMaps<IPost>> {
     const post = await this.postRepository.findOne({
       filter: { _id: postId, $or: getVisibility(user) },
-      populate: [{ path: "createdBy", select: "firstName lastName profilePicture" }],
-      projection: { folderId: 0 },
+      populate: AUTHOR_POPULATE,
     });
 
     if (!post) throw new NotFoundException("Post not found");
     return post;
   }
 
+  async sharePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
+    const post = await this.postRepository.findById({ id: postId });
+    if (!post) throw new NotFoundException("Post not found");
+
+    if (post.visibility !== PostVisibilityEnum.PUBLIC) throw new ForbiddenException("You are not allowed to share this post");
+    if (post.createdBy.toString() === user._id.toString()) throw new BadRequestException("You are not allowed to share your own post");
+
+    const sharedPost = await this.postRepository.createOne({
+      data: { createdBy: user._id, content: post.content, visibility: post.visibility, tags: post.tags, location: post.location, folderId: post.folderId, attachments: post.attachments },
+    });
+    return sharedPost;
+  }
+
+  // Update
+
   async updatePost(
     dto: UpdatePostDto,
-    files: Express.Multer.File[],
+    files: Express.Multer.File[] = [],
     { postId }: PostIdParamDto,
     user: HydratedDocument<IUser>,
   ) {
@@ -125,57 +148,31 @@ class PostService {
       throw new ForbiddenException("You are not allowed to update this post");
     }
 
-    // ── resolve attachments: survivors (after removal) + any newly uploaded files ──
-    const willHaveNewAttachments = files?.length > 0;
-    const willRemoveAttachments = (removeAttachments?.length ?? 0) > 0;
+    // ── attachments: compute resulting state and validate before any side effect ──
+    const current = post.attachments ?? [];
+    const toRemove = new Set(removeAttachments);
+    const removedKeys = current.filter((key) => toRemove.has(key));
+    const survivors = current.filter((key) => !toRemove.has(key));
+    const totalAttachments = survivors.length + files.length;
 
-    const survivors = willRemoveAttachments
-      ? (post.attachments ?? []).filter((key) => !removeAttachments.includes(key))
-      : (post.attachments ?? []);
-
-    // ── content-or-attachment invariant, checked against the resulting state ──
-    const resultingContent = content ?? post.content;
-    const resultingAttachmentsCount = survivors.length + (willHaveNewAttachments ? files.length : 0);
-
-    if (!resultingContent && resultingAttachmentsCount === 0) {
+    if (!(content ?? post.content) && totalAttachments === 0) {
       throw new BadRequestException("Post must have either content or at least one attachment");
     }
-
-    if (resultingAttachmentsCount > 10) {
-      throw new BadRequestException("Maximum 10 attachments allowed");
+    if (totalAttachments > this.MAX_ATTACHMENTS) {
+      throw new BadRequestException(`Maximum ${this.MAX_ATTACHMENTS} attachments allowed`);
     }
 
     // ── tags: undefined = untouched, [] = clear, [...] = replace ──
-    const tagsProvided = tags !== undefined;
-    let mentions: Types.ObjectId[] | undefined;
+    const mentions = tags === undefined ? undefined : await this.postHelper.resolveMentions(tags);
 
-    if (tagsProvided) {
-      if (tags.length === 0) {
-        mentions = [];
-      } else {
-        const mentionedAccounts = await this.userRepository.find({
-          filter: { _id: { $in: tags } },
-        });
-        if (mentionedAccounts.length !== tags.length) {
-          throw new NotFoundException("One or more tagged users not found");
-        }
-        mentions = tags.map((id) => new Types.ObjectId(id));
-      }
-    }
+    // ── upload new files ──
+    const newAttachments = files.length
+      ? await this.s3.uploadMultipleAssets({ files, path: `posts/${post.folderId}` })
+      : [];
 
-    // ── upload new files, if any ──
-    let newAttachments: string[] = [];
-    if (willHaveNewAttachments) {
-      newAttachments = await this.s3.uploadMultipleAssets({
-        files,
-        path: `posts/${post.folderId}`,
-      });
-    }
+    const attachmentsChanged = files.length > 0 || removedKeys.length > 0;
 
-    const attachmentsChanged = willHaveNewAttachments || willRemoveAttachments;
-    const resultingAttachments = [...survivors, ...newAttachments];
-
-    // ── commit the DB write ──
+    // ── commit; roll back uploads on any failure ──
     let updatedPost: HydratedDocument<IPost> | null;
     try {
       updatedPost = await this.postRepository.findOneAndUpdate({
@@ -183,118 +180,92 @@ class PostService {
         update: {
           ...(content !== undefined && { content }),
           ...(visibility !== undefined && { visibility }),
-          ...(tagsProvided && { tags: mentions }),
+          ...(mentions !== undefined && { tags: mentions }),
           ...(location !== undefined && { location }),
-          ...(attachmentsChanged && { attachments: resultingAttachments }),
+          ...(attachmentsChanged && { attachments: [...survivors, ...newAttachments] }),
           updatedBy: user._id,
           isEdited: true,
         },
       });
     } catch (err) {
-      if (newAttachments.length) {
-        await this.s3.deleteMultipleAssets({ keys: newAttachments });
-      }
+      await this.postHelper.safeDeleteAssets(newAttachments);
       throw err;
     }
 
     if (!updatedPost) {
-      if (newAttachments.length) {
-        await this.s3.deleteMultipleAssets({ keys: newAttachments });
-      }
+      await this.postHelper.safeDeleteAssets(newAttachments);
       throw new NotFoundException("Post not found");
     }
 
-    // ── cleanup: only delete the specific keys that were actually removed ──
-    if (willRemoveAttachments) {
-      const actuallyRemoved = (post.attachments ?? []).filter((key) => removeAttachments.includes(key));
-      if (actuallyRemoved.length) {
-        await this.s3.deleteMultipleAssets({ keys: actuallyRemoved });
-      }
-    }
-
-    // ── notify only users newly added to tags, not everyone in the final list ──
-    if (mentions?.length) {
-      const newlyTagged = mentions.filter(
-        (id) => !post.tags?.some((existing) => existing.toString() === id.toString()),
-      );
-      if (newlyTagged.length) {
-        await Promise.allSettled(
-          newlyTagged.map((recipientId) =>
-            this.notificationsService.notifyNewMessage({
-              recipientId: recipientId.toString(),
-              message: `${user.firstName} ${user.lastName} tagged you in a post`,
-            }),
-          ),
-        );
-      }
-    }
+    // ── post-commit side effects must never fail the request ──
+    await this.postHelper.safeDeleteAssets(removedKeys);
+    await this.postHelper.notifyNewlyTagged(post.tags as Types.ObjectId[] | undefined, mentions, user, "post");
 
     return updatedPost;
   }
+
+  // Reactions
 
   async reactAtPost({ reaction }: ReactAtPostDto, { postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
     const post = await this.postRepository.findById({ id: postId });
     if (!post) throw new NotFoundException("Post not found");
 
-    const existingReaction = post.reactions?.find(
-      (r) => r.createdBy.toString() === user._id.toString()
-    );
+    const existingReaction = post.reactions?.find((r) => r.createdBy.toString() === user._id.toString());
 
+    // same reaction again = toggle off
     if (existingReaction?.reactionType === reaction) {
-      await this.postRepository.updateOne({
-        filter: { _id: postId },
-        update: {
-          $pull: { reactions: { createdBy: user._id } },
-          $inc: { reactionsCount: -1, [`reactionsBreakdown.${reaction}`]: -1 },
-        },
-      });
+      await this.removeReaction(postId, user._id, reaction);
     } else {
+      // different reaction = swap
       if (existingReaction) {
-        await this.postRepository.updateOne({
-          filter: { _id: postId },
-          update: {
-            $pull: { reactions: { createdBy: user._id } },
-            $inc: { reactionsCount: -1, [`reactionsBreakdown.${existingReaction.reactionType}`]: -1 },
-          },
-        });
+        await this.removeReaction(postId, user._id, existingReaction.reactionType);
       }
-      await this.postRepository.updateOne({
-        filter: { _id: postId },
-        update: {
-          $push: { reactions: { reactionType: reaction, createdBy: user._id, createdAt: new Date() } },
-          $inc: { reactionsCount: 1, [`reactionsBreakdown.${reaction}`]: 1 },
-        },
-      });
+      await this.addReaction(postId, user._id, reaction);
     }
 
     const updatedPost = await this.postRepository.findById({
       id: postId,
       projection: { reactionsCount: 1, reactionsBreakdown: 1 },
     });
-
     if (!updatedPost) throw new NotFoundException("Post not found");
 
     return updatedPost;
   }
 
-  async softDeletePost({ postId, userId }: { postId: string; userId: Types.ObjectId }) {
-    const post = await this.postRepository.findOneAndUpdate({
+  // Delete / restore
+
+  async softDeletePost({ postId, user }: { postId: string; user: HydratedDocument<IUser> }) {
+    const post = await this.postRepository.findById({ id: postId });
+    if (!post) throw new NotFoundException("Post not found");
+
+    const isAllowed = user.role === RoleEnum.Admin || post.createdBy.toString() === user._id.toString();
+    if (!isAllowed) throw new ForbiddenException("You are not allowed to delete this post");
+
+    const deletedPost = await this.postRepository.findOneAndUpdate({
       filter: { _id: postId },
-      update: { deletedAt: new Date(), updatedBy: userId },
+      update: { deletedAt: new Date(), updatedBy: user._id },
     });
 
-    if (!post) throw new NotFoundException("Post not found");
-    return post;
+    if (!deletedPost) throw new NotFoundException("Post not found");
+    return deletedPost;
   }
 
-  async restorePost({ postId, userId }: { postId: string; userId: Types.ObjectId }) {
-    const post = await this.postRepository.findOneAndUpdate({
+  async restorePost({ postId, user }: { postId: string; user: HydratedDocument<IUser> }) {
+    const post = await this.postRepository.findOne({
       filter: { _id: postId, paranoid: false } as any,
-      update: { restoredAt: new Date(), updatedBy: userId },
+    });
+    if (!post) throw new NotFoundException("Post not found");
+
+    const isAllowed = user.role === RoleEnum.Admin || post.createdBy.toString() === user._id.toString();
+    if (!isAllowed) throw new ForbiddenException("You are not allowed to restore this post");
+
+    const restoredPost = await this.postRepository.findOneAndUpdate({
+      filter: { _id: postId, paranoid: false } as any,
+      update: { restoredAt: new Date(), updatedBy: user._id },
     });
 
-    if (!post) throw new NotFoundException("Post not found");
-    return post;
+    if (!restoredPost) throw new NotFoundException("Post not found");
+    return restoredPost;
   }
 
   async hardDeletePost({ postId }: { postId: string }) {
@@ -303,6 +274,27 @@ class PostService {
     });
 
     if (!post) throw new NotFoundException("Post not found");
+
+    // Clean up all comments associated with this post and all attachments (best effort)
+    try {
+      const comments = (await this.commentRepository.find({
+        filter: { postId },
+        projection: { attachments: 1 },
+        options: { lean: true },
+      })) as unknown as { _id: Types.ObjectId; attachments?: string[] }[];
+
+      await this.commentRepository.deleteMany({ filter: { postId } });
+
+      const allAssetKeys = [
+        ...(post.attachments ?? []),
+        ...comments.flatMap((c) => c.attachments ?? []),
+      ];
+
+      await this.postHelper.safeDeleteAssets(allAssetKeys);
+    } catch (err) {
+      console.error("Failed to clean up cascading assets for post:", err);
+    }
+
     return post;
   }
 }

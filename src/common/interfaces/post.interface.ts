@@ -22,7 +22,7 @@ export interface IPost {
   reactions?: IReaction[];
   reactionsCount: number;
   reactionsBreakdown: Map<ReactionTypeEnum, number>;
-  comments?: IComment[];
+  commentsCount: number;
   sharedFrom?: ISharedPost;
   shareCount: number;
   isEdited: boolean;
@@ -40,11 +40,24 @@ export interface IReaction {
 }
 
 export interface IComment {
-  _id: Types.ObjectId;
+  postId: Types.ObjectId | IPost;
+  commentId?: Types.ObjectId | IComment | undefined;
+
+  content?: string | undefined;
+  attachments?: string[] | undefined;
+
   createdBy: Types.ObjectId | IUser;
-  content: string;
+  updatedBy?: Types.ObjectId | IUser;
+
+  tags?: Types.ObjectId[] | IUser[] | undefined;
+
   reactions?: IReaction[];
-  replies?: IComment[];
+  reactionsCount: number;
+  reactionsBreakdown: Map<ReactionTypeEnum, number>;
+
+  repliesCount: number;
+  isEdited: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,5 +65,9 @@ export interface IComment {
 export interface ISharedPost {
   originalPostId: Types.ObjectId;
   originalAuthorId: Types.ObjectId | IUser;
+
+  caption: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 

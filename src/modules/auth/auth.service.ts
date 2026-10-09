@@ -35,11 +35,16 @@ class AuthenticationService {
   private readonly BLOCK_TTL = 60 * 60; // 1 hour
 
   // constructor
-  constructor() {
-    this.redis = redisService; // reuse the singleton
-    this.notificationsService = notificationsService;
-    this.userRepository = new UserRepository();
-    this.tokenService = new TokenService();
+  constructor(
+    userRepository: UserRepository = new UserRepository(),
+    redis: RedisService = redisService,
+    tokenService: TokenService = new TokenService(),
+    notifications: NotificationsService = notificationsService,
+  ) {
+    this.userRepository = userRepository;
+    this.redis = redis;
+    this.tokenService = tokenService;
+    this.notificationsService = notifications;
   }
 
 
@@ -489,4 +494,4 @@ class AuthenticationService {
   };
 }
 
-export default new AuthenticationService();
+export const authService = new AuthenticationService();

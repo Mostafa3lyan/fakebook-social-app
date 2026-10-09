@@ -1,7 +1,7 @@
 import nodemailer from "nodemailer";
-import { APP_NAME, EMAIL_APP_PASSWORD, Email_USER } from "../../../config/config.service.js";
+import { APP_NAME, EMAIL_APP_PASSWORD, Email_USER } from "../../../config/config.service";
 import Mail from "nodemailer/lib/mailer/index.js";
-import { BadRequestException } from "../../exceptions/domain.exception.js";
+import { BadRequestException } from "../../exceptions";
 
 export const sendEmail = async ({
   to,

@@ -4,8 +4,8 @@ import { IUser } from "../../common/interfaces";
 import { successResponse } from "../../common/response";
 import { authentication, validation } from "../../middleware";
 import { ILoginResponse } from "./auth.entity";
-import authService from "./auth.service";
-import * as validators from "./auth.validation.js";
+import { authService } from "./auth.service";
+import * as validators from "./auth.validation";
 
 const router = Router();
 

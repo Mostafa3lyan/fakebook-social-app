@@ -15,6 +15,10 @@ export const postIdParamSchema = z.object({
   postId: id,
 });
 
+export const postParamSchema = {
+  params: postIdParamSchema,
+};
+
 // post.validation.ts
 const jsonArrayField = <T extends z.ZodTypeAny>(itemSchema: T) =>
   z.preprocess((val) => {

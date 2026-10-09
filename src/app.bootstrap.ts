@@ -1,7 +1,7 @@
 import connectDB from "./DB/connection.db";
 import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
-import { authRouter, userRouter, notificationsRouter, postRouter } from "./modules";
+import { authRouter, userRouter, notificationsRouter, postRouter, commentRouter } from "./modules";
 import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
@@ -23,6 +23,7 @@ const bootstrap = async () => {
   app.use("/auth", authRouter);
   app.use("/user", userRouter);
   app.use("/notifications", notificationsRouter);
+  app.use("/post/:postId/comment", commentRouter);
   app.use("/post", postRouter);
   // app.use("/message", messageRouter);
 

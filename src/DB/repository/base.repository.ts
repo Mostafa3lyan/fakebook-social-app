@@ -25,6 +25,47 @@ type DeleteQueryOptions<T> = NonNullable<Parameters<Model<T>["deleteOne"]>[1]>;
 export abstract class DatabaseRepository<TRawDoc> {
   constructor(protected readonly model: Model<TRawDoc>) { }
 
+  /**
+   * Automatically excludes __v from query results unless explicitly requested.
+   */
+  protected resolveProjection(projection?: ProjectionType<TRawDoc>): ProjectionType<TRawDoc> {
+    if (!projection) return { __v: 0 } as ProjectionType<TRawDoc>;
+
+    if (typeof projection === "string") {
+      return projection.includes("__v") ? projection : `${projection} -__v`;
+    }
+
+    if (typeof projection === "object" && !Array.isArray(projection)) {
+      if ("__v" in projection) return projection;
+      const isExclusion = Object.values(projection).every((v) => v === 0 || v === false);
+      if (isExclusion) {
+        return { ...projection, __v: 0 } as ProjectionType<TRawDoc>;
+      }
+    }
+
+    return projection;
+  }
+
+  /**
+   * Automatically increments __v on update operations.
+   */
+  protected resolveUpdate(
+    update: UpdateQuery<TRawDoc> | UpdateWithAggregationPipeline,
+  ): UpdateQuery<TRawDoc> | UpdateWithAggregationPipeline {
+    if (!update || Array.isArray(update)) return update;
+    const u = update as UpdateQuery<TRawDoc>;
+
+    // If update explicitly handles __v in $inc or $set, don't overwrite it
+    if ((u.$inc && "__v" in (u.$inc as Record<string, any>)) || (u.$set && "__v" in (u.$set as Record<string, any>))) {
+      return u;
+    }
+
+    return {
+      ...u,
+      $inc: { ...(u.$inc as Record<string, any>), __v: 1 },
+    } as UpdateQuery<TRawDoc>;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // ─── Create ────────────────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
@@ -149,7 +190,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
     const resolvedOptions = { lean: true, ...options };
-    let query = this.model.findById(id, projection, resolvedOptions);
+    let query = this.model.findById(id, this.resolveProjection(projection), resolvedOptions);
     if (populate) query = query.populate(populate as any);
     return query.exec();
   }
@@ -208,7 +249,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
     const resolvedOptions = { lean: true, ...options };
-    let query = this.model.findOne(filter, projection, resolvedOptions);
+    let query = this.model.findOne(filter, this.resolveProjection(projection), resolvedOptions);
     if (populate) query = query.populate(populate as any);
     return query.exec();
   }
@@ -288,7 +329,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     options?: QueryOptions<TRawDoc>;
   }): Promise<any> {
     const resolvedOptions = { lean: true, ...options };
-    let query = this.model.find(filter, projection, resolvedOptions);
+    let query = this.model.find(filter, this.resolveProjection(projection), resolvedOptions);
     if (populate) query = query.populate(populate as any);
     if (sort) query = query.sort(sort);
     if (limit !== undefined) query = query.limit(limit);
@@ -384,7 +425,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     const safeLimit = isPaginated ? Math.max(1, limit ?? 10) : undefined;
     const skip = isPaginated ? (safePage! - 1) * safeLimit! : undefined;
 
-    let query = this.model.find(filter, projection, resolvedOptions);
+    let query = this.model.find(filter, this.resolveProjection(projection), resolvedOptions);
     if (populate) query = query.populate(populate as any);
     if (sort) query = query.sort(sort);
     if (isPaginated) query = query.skip(skip!).limit(safeLimit!);
@@ -489,7 +530,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     update: UpdateQuery<TRawDoc> | UpdateWithAggregationPipeline;
     options?: QueryOptions<TRawDoc> & { new?: boolean };
   }): Promise<HydratedDocument<TRawDoc> | null> {
-    return this.model.findByIdAndUpdate(id, update, {
+    return this.model.findByIdAndUpdate(id, this.resolveUpdate(update), {
       new: true,
       ...options,
     });
@@ -515,7 +556,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     upsert?: boolean;
     options?: QueryOptions<TRawDoc> & { new?: boolean };
   }): Promise<HydratedDocument<TRawDoc> | null> {
-    return this.model.findOneAndUpdate(filter, update, {
+    return this.model.findOneAndUpdate(filter, this.resolveUpdate(update), {
       new: true,
       upsert,
       ...options,
@@ -540,7 +581,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     update: UpdateQuery<TRawDoc> | UpdateWithAggregationPipeline;
     options?: UpdateQueryOptions<TRawDoc>;
   }): Promise<mongo.UpdateResult> {
-    return this.model.updateOne(filter, update, { ...options });
+    return this.model.updateOne(filter, this.resolveUpdate(update), { ...options });
   }
 
   /**
@@ -561,7 +602,7 @@ export abstract class DatabaseRepository<TRawDoc> {
     update: UpdateQuery<TRawDoc> | UpdateWithAggregationPipeline;
     options?: UpdateQueryOptions<TRawDoc>;
   }): Promise<mongo.UpdateResult> {
-    return this.model.updateMany(filter, update, { ...options });
+    return this.model.updateMany(filter, this.resolveUpdate(update), { ...options });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

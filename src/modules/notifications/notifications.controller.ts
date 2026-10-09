@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { authentication } from "../../middleware";
 import { successResponse } from "../../common/response";
-import { notificationsService } from "./notifications.service";
+import { notificationsService } from "../../common/services";
 
 const router = Router();
 
@@ -29,10 +29,10 @@ router.post("/notifyNewMessage",
   async (req: Request, res: Response) => {
     const { recipientId, message } = req.body;
 
-    await notificationsService.notifyNewMessage(
+    await notificationsService.notifyNewMessage({
       recipientId,
       message,
-    );
+    });
 
     return successResponse({
       message: "New message notification sent successfully",

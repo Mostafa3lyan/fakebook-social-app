@@ -1,7 +1,7 @@
 import { Model, model, Schema, Types } from "mongoose";
 import { GenderEnum, ProviderEnum, RoleEnum } from "../../common/enums/index";
 import { IUser, IUserVirtuals } from "../../common/interfaces/index";
-import { encryptGenerator, generateHash } from "../../common/utils";
+import { encryptGenerator, generateHash } from "../../common/utils/security";
 
 
 

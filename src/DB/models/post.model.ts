@@ -1,8 +1,8 @@
 import { Model, model, Schema } from "mongoose";
 import { PostVisibilityEnum, ReactionTypeEnum } from "../../common/enums/index";
-import { IPost, IReaction, IComment, ISharedPost } from "../../common/interfaces/index";
+import { IPost, IReaction, ISharedPost } from "../../common/interfaces/index";
 
-const ReactionSchema = new Schema<IReaction>(
+export const ReactionSchema = new Schema<IReaction>(
   {
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
     reactionType: {
@@ -15,29 +15,23 @@ const ReactionSchema = new Schema<IReaction>(
   { _id: false },
 );
 
-const CommentSchema = new Schema<IComment>(
-  {
-    createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    content: { type: String, required: true, trim: true },
-    reactions: { type: [ReactionSchema], default: [] },
-    replies: { type: [Schema.Types.Mixed], default: [] },
-  },
-  { timestamps: true },
-);
-
 const SharedPostSchema = new Schema<ISharedPost>(
   {
     originalPostId: { type: Schema.Types.ObjectId, ref: "Post", required: true },
     originalAuthorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    caption: { type: String, trim: true, maxlength: 500 },
   },
-  { _id: false },
+  { _id: false, timestamps: true }
 );
+
+SharedPostSchema.index({ originalPostId: 1, createdAt: -1 });
 
 const postSchema = new Schema<IPost, Model<IPost>>(
   {
     folderId: {
       type: String,
       required: true,
+      select: false,
     },
     content: {
       type: String,
@@ -85,7 +79,7 @@ const postSchema = new Schema<IPost, Model<IPost>>(
       of: Number,
       default: {},
     },
-    comments: { type: [CommentSchema], default: [] },
+    commentsCount: { type: Number, default: 0, min: 0 },
     sharedFrom: { type: SharedPostSchema },
     shareCount: { type: Number, default: 0, min: 0 },
     isEdited: { type: Boolean, default: false },
@@ -164,3 +158,8 @@ postSchema.pre(["deleteOne", "deleteMany", "findOneAndDelete"], function () {
 });
 
 export const PostModel: Model<IPost> = model<IPost>("Post", postSchema);
+
+// export const SharedPostModel: Model<ISharedPost> = model<ISharedPost>(
+//   "SharedPost",
+//   SharedPostSchema,
+// );

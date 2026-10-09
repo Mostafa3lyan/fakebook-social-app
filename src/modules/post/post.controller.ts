@@ -3,7 +3,7 @@ import { authentication, authorization, validation } from "../../middleware";
 import { successResponse } from "../../common/response";
 import { postService } from "./post.service";
 import { RoleEnum } from "../../common/enums";
-import * as validators from "./post.validation.js";
+import * as validators from "./post.validation";
 import { cloudFileUpload, fileFieldValidation } from "../../common/utils/multer";
 import { PaginationDto, paginationValidationSchema } from "../../common/validation";
 
@@ -38,8 +38,20 @@ router.get(
 router.get(
   "/:postId",
   authentication(),
+  validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
     const post = await postService.getPostById(req.params as validators.PostIdParamDto, req.user);
+    return successResponse({ res, data: { post } });
+  },
+);
+
+// Share post
+router.post(
+  "/:postId/share",
+  authentication(),
+  validation(validators.postParamSchema),
+  async (req: Request, res: Response) => {
+    const post = await postService.sharePost(req.params as validators.PostIdParamDto, req.user);
     return successResponse({ res, data: { post } });
   },
 );
@@ -51,7 +63,12 @@ router.patch(
   cloudFileUpload({ validation: fileFieldValidation.image }).array("attachments", 10),
   validation(validators.updatePostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.updatePost(req.body, req.files as Express.Multer.File[], req.params as validators.PostIdParamDto, req.user);
+    const post = await postService.updatePost(
+      req.body,
+      req.files as Express.Multer.File[],
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
     return successResponse({ res, data: { post } });
   },
 );
@@ -62,38 +79,53 @@ router.post(
   authentication(),
   validation(validators.reactAtPostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.reactAtPost(req.body, req.params as validators.PostIdParamDto, req.user);
-    return successResponse({ res, data: { post } });
-  }
-);
-
-// Soft delete
-router.delete(
-  "/:postId",
-  authentication(),
-  async (req: Request, res: Response) => {
-    const post = await postService.softDeletePost({ postId: req.params.id as string, userId: req.user._id });
+    const post = await postService.reactAtPost(
+      req.body,
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
     return successResponse({ res, data: { post } });
   },
 );
 
-// Restore
+// Soft delete (author or admin)
+router.delete(
+  "/:postId/soft-delete",
+  authentication(),
+  validation(validators.postParamSchema),
+  async (req: Request, res: Response) => {
+    const post = await postService.softDeletePost({
+      postId: req.params.postId as string,
+      user: req.user,
+    });
+    return successResponse({ res, data: { post } });
+  },
+);
+
+// Restore (author or admin)
 router.patch(
   "/:postId/restore",
   authentication(),
+  validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.restorePost({ postId: req.params.id as string, userId: req.user._id });
+    const post = await postService.restorePost({
+      postId: req.params.postId as string,
+      user: req.user,
+    });
     return successResponse({ res, data: { post } });
   },
 );
 
 // Hard delete (admin only)
 router.delete(
-  "/:postId/permanent",
+  "/:postId",
   authentication(),
   authorization([RoleEnum.Admin]),
+  validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.hardDeletePost({ postId: req.params.postId as string });
+    const post = await postService.hardDeletePost({
+      postId: req.params.postId as string,
+    });
     return successResponse({ res, data: { post } });
   },
 );

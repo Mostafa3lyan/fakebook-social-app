@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "../../common/exceptions/index";
 import { IUser } from "../../common/interfaces";
+import { s3Service, S3Service } from "../../common/services";
 import { RedisService, redisService } from "../../common/services/redis.service";
 import { TokenService } from "../../common/services/token.service";
 import { decodedTypes } from "../../common/types/user.types";
@@ -18,35 +19,29 @@ import {
   REFRESH_TOKEN_EXPIRES_IN,
 } from "../../config/config.service";
 import { UserRepository } from "./../../DB/repository/user.repository";
-import { notificationsService, NotificationsService, s3Service, S3Service } from "../../common/services";
+import { ShareProfileDto } from "./user.validation";
 
 class UserService {
   private readonly userRepository: UserRepository;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
   private readonly s3: S3Service;
-  private readonly notificationsService: NotificationsService;
-
-  constructor() {
-    this.userRepository = new UserRepository();
-    this.tokenService = new TokenService();
-    this.redis = redisService;
-    this.s3 = s3Service;
-    this.notificationsService = notificationsService;
+  constructor(
+    userRepository: UserRepository = new UserRepository(),
+    tokenService: TokenService = new TokenService(),
+    redis: RedisService = redisService,
+    s3: S3Service = s3Service,
+  ) {
+    this.userRepository = userRepository;
+    this.tokenService = tokenService;
+    this.redis = redis;
+    this.s3 = s3;
   }
 
 
   // get user profile
   public profile = async (user: HydratedDocument<IUser>) => {
-    await this.notificationsService.triggerWorkflow({
-      workflowKey: "welcome-messages",
-      recipients: ["6a3756226cd442ef622414be"],
-      data: {
-        user: "say my name",
-      }
-      ,
-    });
-    return user.toJSON();
+    return user;
   };
 
   // logout
@@ -106,7 +101,7 @@ class UserService {
   };
 
   // share profile
-  public shareProfile = async (userId: string, loggedInUser: HydratedDocument<IUser>) => {
+  public shareProfile = async (userId: ShareProfileDto, loggedInUser: HydratedDocument<IUser>) => {
     const account = await this.userRepository.findOne({
       filter: { _id: userId },
       projection: "firstName lastName email profilePicture profileVisits phone",
@@ -228,4 +223,4 @@ class UserService {
 
 }
 
-export default new UserService();
+export const userService = new UserService();

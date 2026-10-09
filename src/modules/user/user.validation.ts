@@ -12,7 +12,9 @@ export const logoutSchema = {
 };
 
 export const shareProfile = {
-  params: objectId,
+  params: z.strictObject({
+    userId: objectId,
+  }),
 };
 
 export const profileImage = {
@@ -50,3 +52,7 @@ export const changePasswordSchema = {
 // Inferred types
 export type LogoutDto = z.infer<typeof logoutSchema.body>;
 export type ChangePasswordDto = z.infer<typeof changePasswordSchema.body>;
+export type ShareProfileDto = z.infer<typeof shareProfile.params>;
+export type ProfileImageDto = z.infer<typeof profileImage.file>;
+export type ProfileCoverImageDto = z.infer<typeof profileCoverImage.files>;
+export type ProfileAttachmentsDto = z.infer<typeof profileAttachments.files>;
