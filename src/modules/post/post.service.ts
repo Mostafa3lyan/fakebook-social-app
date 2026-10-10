@@ -7,14 +7,16 @@ import { s3Service, S3Service } from "../../common/services";
 import { IPagination, IPost, IUser } from "../../common/interfaces";
 import { escapeRegex } from "../../common/utils";
 import {
-  AUTHOR_POPULATE,
+  POST_POPULATE,
   getVisibility,
   PostHelper,
   postHelper,
+  AddReactionUpdate,
+  RemoveReactionUpdate,
 } from "./post.helper";
 import { PaginationDto } from "../../common/validation";
-import { CreatePostDto, PostIdParamDto, ReactAtPostDto, UpdatePostDto } from "./post.validation";
-import { PostVisibilityEnum, ReactionTypeEnum, RoleEnum } from "../../common/enums";
+import { CreatePostDto, PostIdParamDto, ReactAtPostDto, SharePostDto, UpdatePostDto } from "./post.validation";
+import { PostVisibilityEnum, RoleEnum } from "../../common/enums";
 
 class PostService {
   private readonly MAX_ATTACHMENTS = 10;
@@ -36,32 +38,11 @@ class PostService {
     this.postHelper = postHelperInstance;
   }
 
-  // Private helpers
 
-  private removeReaction(postId: string, userId: Types.ObjectId, reactionType: ReactionTypeEnum) {
-    return this.postRepository.updateOne({
-      filter: { _id: postId },
-      update: {
-        $pull: { reactions: { createdBy: userId } },
-        $inc: { reactionsCount: -1, [`reactionsBreakdown.${reactionType}`]: -1 },
-      },
-    });
-  }
-
-  private addReaction(postId: string, userId: Types.ObjectId, reactionType: string) {
-    return this.postRepository.updateOne({
-      filter: { _id: postId },
-      update: {
-        $push: { reactions: { reactionType, createdBy: userId, createdAt: new Date() } },
-        $inc: { reactionsCount: 1, [`reactionsBreakdown.${reactionType}`]: 1 },
-      },
-    });
-  }
 
   // Create
 
-  async createPost(dto: CreatePostDto, files: Express.Multer.File[] = [], user: HydratedDocument<IUser>) {
-    const { content, visibility, tags, location } = dto;
+  async createPost({ content, visibility, tags, location }: CreatePostDto, files: Express.Multer.File[] = [], user: HydratedDocument<IUser>) {
 
     if (files.length > this.MAX_ATTACHMENTS) {
       throw new BadRequestException(`Maximum ${this.MAX_ATTACHMENTS} attachments allowed`);
@@ -89,6 +70,54 @@ class PostService {
     return post;
   }
 
+    async sharePost(
+    { content, visibility, tags }: SharePostDto,
+    { postId }: PostIdParamDto,
+    user: HydratedDocument<IUser>,
+  ){
+    const post = await this.postRepository.findById({ id: postId });
+    if (!post) throw new NotFoundException("Post not found");
+
+    if (post.visibility !== PostVisibilityEnum.PUBLIC) {
+      throw new ForbiddenException("You are not allowed to share this post");
+    }
+
+    // Resolve the original root post (flatten chained shares like Facebook)
+    const rootPostId = (post.sharedFrom?.originalPostId ?? postId) as unknown as Types.ObjectId;
+    const rootAuthorId = (post.sharedFrom?.originalAuthorId ?? post.createdBy) as unknown as Types.ObjectId;
+
+    // Resolve mentions / tags
+    const mentions = tags?.length ? await this.postHelper.resolveMentions(tags) : [];
+
+    const folderId = randomUUID();
+    const sharedPost = await this.postRepository.createOne({
+      data: {
+        createdBy: user._id,
+        folderId,
+        content: content || undefined,
+        visibility,
+        tags: mentions,
+        attachments: [],
+        sharedFrom: {
+          originalPostId: rootPostId,
+          originalAuthorId: rootAuthorId,
+        },
+      },
+    });
+
+    // Increment shareCount on the root post
+    await this.postRepository.updateOne({
+      filter: { _id: rootPostId.toString() },
+      update: { $inc: { shareCount: 1 } },
+    });
+
+    // Notify tagged users and root author (best effort)
+    await this.postHelper.notifyNewlyTagged(undefined, mentions, user, "post");
+    await this.postHelper.notifyAuthor(rootAuthorId, user, "shared your post");
+
+    return sharedPost;
+  }
+
   // Read
 
   async getPosts(
@@ -100,7 +129,7 @@ class PostService {
         $or: getVisibility(user),
         ...(search && { content: { $regex: escapeRegex(search), $options: "i" } }),
       },
-      populate: AUTHOR_POPULATE,
+      populate: POST_POPULATE,
       projection: { reactions: 0, comments: 0 },
       page,
       limit,
@@ -111,36 +140,21 @@ class PostService {
   async getPostById({ postId }: PostIdParamDto, user: HydratedDocument<IUser>): Promise<FlattenMaps<IPost>> {
     const post = await this.postRepository.findOne({
       filter: { _id: postId, $or: getVisibility(user) },
-      populate: AUTHOR_POPULATE,
+      populate: POST_POPULATE,
     });
 
     if (!post) throw new NotFoundException("Post not found");
     return post;
   }
 
-  async sharePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
-    const post = await this.postRepository.findById({ id: postId });
-    if (!post) throw new NotFoundException("Post not found");
-
-    if (post.visibility !== PostVisibilityEnum.PUBLIC) throw new ForbiddenException("You are not allowed to share this post");
-    if (post.createdBy.toString() === user._id.toString()) throw new BadRequestException("You are not allowed to share your own post");
-
-    const sharedPost = await this.postRepository.createOne({
-      data: { createdBy: user._id, content: post.content, visibility: post.visibility, tags: post.tags, location: post.location, folderId: post.folderId, attachments: post.attachments },
-    });
-    return sharedPost;
-  }
-
   // Update
 
   async updatePost(
-    dto: UpdatePostDto,
+    { content, visibility, tags, location, removeAttachments = [] }: UpdatePostDto,
     files: Express.Multer.File[] = [],
     { postId }: PostIdParamDto,
     user: HydratedDocument<IUser>,
   ) {
-    const { content, visibility, tags, location, removeAttachments = [] } = dto;
-
     const post = await this.postRepository.findById({ id: postId });
     if (!post) throw new NotFoundException("Post not found");
 
@@ -214,13 +228,22 @@ class PostService {
 
     // same reaction again = toggle off
     if (existingReaction?.reactionType === reaction) {
-      await this.removeReaction(postId, user._id, reaction);
+      await this.postRepository.updateOne({
+        filter: { _id: postId },
+        update: RemoveReactionUpdate(user._id, reaction),
+      });
     } else {
       // different reaction = swap
       if (existingReaction) {
-        await this.removeReaction(postId, user._id, existingReaction.reactionType);
+        await this.postRepository.updateOne({
+          filter: { _id: postId },
+          update: RemoveReactionUpdate(user._id, existingReaction.reactionType),
+        });
       }
-      await this.addReaction(postId, user._id, reaction);
+      await this.postRepository.updateOne({
+        filter: { _id: postId },
+        update: AddReactionUpdate(user._id, reaction),
+      });
     }
 
     const updatedPost = await this.postRepository.findById({
@@ -234,7 +257,7 @@ class PostService {
 
   // Delete / restore
 
-  async softDeletePost({ postId, user }: { postId: string; user: HydratedDocument<IUser> }) {
+  async softDeletePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
     const post = await this.postRepository.findById({ id: postId });
     if (!post) throw new NotFoundException("Post not found");
 
@@ -247,12 +270,23 @@ class PostService {
     });
 
     if (!deletedPost) throw new NotFoundException("Post not found");
+
+    if (deletedPost.sharedFrom?.originalPostId) {
+      const rootId =
+        (deletedPost.sharedFrom.originalPostId as { _id?: Types.ObjectId })._id?.toString() ??
+        deletedPost.sharedFrom.originalPostId.toString();
+      await this.postRepository.updateOne({
+        filter: { _id: rootId },
+        update: { $inc: { shareCount: -1 } },
+      });
+    }
+
     return deletedPost;
   }
 
-  async restorePost({ postId, user }: { postId: string; user: HydratedDocument<IUser> }) {
+  async restorePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
     const post = await this.postRepository.findOne({
-      filter: { _id: postId, paranoid: false } as any,
+      filter: { _id: postId, paranoid: false },
     });
     if (!post) throw new NotFoundException("Post not found");
 
@@ -260,28 +294,52 @@ class PostService {
     if (!isAllowed) throw new ForbiddenException("You are not allowed to restore this post");
 
     const restoredPost = await this.postRepository.findOneAndUpdate({
-      filter: { _id: postId, paranoid: false } as any,
+      filter: { _id: postId, paranoid: false },
       update: { restoredAt: new Date(), updatedBy: user._id },
     });
 
     if (!restoredPost) throw new NotFoundException("Post not found");
+
+    if (restoredPost.sharedFrom?.originalPostId) {
+      const rootId =
+        (restoredPost.sharedFrom.originalPostId as { _id?: Types.ObjectId })._id?.toString() ??
+        restoredPost.sharedFrom.originalPostId.toString();
+      await this.postRepository.updateOne({
+        filter: { _id: rootId },
+        update: { $inc: { shareCount: 1 } },
+      });
+    }
+
     return restoredPost;
   }
 
-  async hardDeletePost({ postId }: { postId: string }) {
+  async hardDeletePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
     const post = await this.postRepository.findOneAndDelete({
-      filter: { _id: postId, force: true } as any,
+      filter: { _id: postId },
     });
 
     if (!post) throw new NotFoundException("Post not found");
 
+    const isAllowed = user.role === RoleEnum.Admin || post.createdBy.toString() === user._id.toString();
+    if (!isAllowed) throw new ForbiddenException("You are not allowed to delete this post");
+
+    if (post.sharedFrom?.originalPostId && !post.deletedAt) {
+      const rootId =
+        (post.sharedFrom.originalPostId as { _id?: Types.ObjectId })._id?.toString() ??
+        post.sharedFrom.originalPostId.toString();
+      await this.postRepository.updateOne({
+        filter: { _id: rootId },
+        update: { $inc: { shareCount: -1 } },
+      });
+    }
+
     // Clean up all comments associated with this post and all attachments (best effort)
     try {
-      const comments = (await this.commentRepository.find({
+      const comments = await this.commentRepository.find({
         filter: { postId },
         projection: { attachments: 1 },
         options: { lean: true },
-      })) as unknown as { _id: Types.ObjectId; attachments?: string[] }[];
+      });
 
       await this.commentRepository.deleteMany({ filter: { postId } });
 

@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { authentication, authorization, validation } from "../../middleware";
+import { authentication, validation } from "../../middleware";
 import { successResponse } from "../../common/response";
 import { postService } from "./post.service";
-import { RoleEnum } from "../../common/enums";
 import * as validators from "./post.validation";
 import { cloudFileUpload, fileFieldValidation } from "../../common/utils/multer";
 import { PaginationDto, paginationValidationSchema } from "../../common/validation";
@@ -49,10 +48,14 @@ router.get(
 router.post(
   "/:postId/share",
   authentication(),
-  validation(validators.postParamSchema),
+  validation(validators.sharePostSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.sharePost(req.params as validators.PostIdParamDto, req.user);
-    return successResponse({ res, data: { post } });
+    const post = await postService.sharePost(
+      req.body as validators.SharePostDto,
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
+    return successResponse({ res, status: 201, data: { post } });
   },
 );
 
@@ -94,10 +97,10 @@ router.delete(
   authentication(),
   validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.softDeletePost({
-      postId: req.params.postId as string,
-      user: req.user,
-    });
+    const post = await postService.softDeletePost(
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
     return successResponse({ res, data: { post } });
   },
 );
@@ -108,24 +111,24 @@ router.patch(
   authentication(),
   validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.restorePost({
-      postId: req.params.postId as string,
-      user: req.user,
-    });
+    const post = await postService.restorePost(
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
     return successResponse({ res, data: { post } });
   },
 );
 
-// Hard delete (admin only)
+// Hard delete (author or admin)
 router.delete(
   "/:postId",
   authentication(),
-  authorization([RoleEnum.Admin]),
   validation(validators.postParamSchema),
   async (req: Request, res: Response) => {
-    const post = await postService.hardDeletePost({
-      postId: req.params.postId as string,
-    });
+    const post = await postService.hardDeletePost(
+      req.params as validators.PostIdParamDto,
+      req.user,
+    );
     return successResponse({ res, data: { post } });
   },
 );

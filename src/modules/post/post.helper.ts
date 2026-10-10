@@ -1,11 +1,19 @@
 import { HydratedDocument, Types } from "mongoose";
-import { PostVisibilityEnum } from "../../common/enums";
+import { PostVisibilityEnum, ReactionTypeEnum } from "../../common/enums";
 import { IUser } from "../../common/interfaces";
 import { NotFoundException } from "../../common/exceptions";
 import { notificationsService, NotificationsService, s3Service, S3Service } from "../../common/services";
 import { UserRepository } from "../../DB/repository/user.repository";
 
 export const AUTHOR_POPULATE = [{ path: "createdBy", select: "firstName lastName profilePicture" }];
+
+export const POST_POPULATE = [
+  ...AUTHOR_POPULATE,
+  {
+    path: "sharedFrom.originalPostId",
+    populate: AUTHOR_POPULATE,
+  },
+];
 
 export const getVisibility = (user: HydratedDocument<IUser>) => {
   return [
@@ -15,6 +23,16 @@ export const getVisibility = (user: HydratedDocument<IUser>) => {
     { tags: { $in: [user._id] } },
   ];
 };
+
+export const AddReactionUpdate = (userId: Types.ObjectId, reactionType: ReactionTypeEnum | string) => ({
+  $push: { reactions: { reactionType, createdBy: userId, createdAt: new Date() } },
+  $inc: { reactionsCount: 1, [`reactionsBreakdown.${reactionType}`]: 1 },
+});
+
+export const RemoveReactionUpdate = (userId: Types.ObjectId, reactionType: ReactionTypeEnum | string) => ({
+  $pull: { reactions: { createdBy: userId } },
+  $inc: { reactionsCount: -1, [`reactionsBreakdown.${reactionType}`]: -1 },
+});
 
 export class PostHelper {
   private readonly userRepository: UserRepository;
@@ -63,10 +81,28 @@ export class PostHelper {
       newlyTagged.map((id) =>
         this.notificationsService.notifyNewMessage({
           recipientId: id.toString(),
-          message: `${actor.firstName} ${actor.lastName} tagged you in a ${target}`,
+          message: `${actor.firstName} ${actor.lastName} mentioned you in a ${target}`,
         }),
       ),
     );
+  }
+
+  /** Notify post/comment owner/author if not the acting user (best effort). */
+  public async notifyAuthor(
+    ownerId: Types.ObjectId | IUser,
+    actor: HydratedDocument<IUser>,
+    message: string,
+  ) {
+    const recipientId = (ownerId as { _id?: Types.ObjectId })._id?.toString() ?? ownerId.toString();
+    if (recipientId === actor._id.toString()) return;
+    try {
+      await this.notificationsService.notifyNewMessage({
+        recipientId,
+        message: `${actor.firstName} ${actor.lastName} ${message}`,
+      });
+    } catch (err) {
+      console.error("Failed to send notification:", err);
+    }
   }
 
   /** Best-effort S3 cleanup (never fails the request). */

@@ -3,6 +3,7 @@ import { PostVisibilityEnum, ReactionTypeEnum } from "../enums";
 import { IUser } from "./user.interface";
 
 export interface IPost {
+  _id?: Types.ObjectId;
   folderId: string;
   content?: string | undefined;
   attachments?: string[] | undefined;
@@ -63,11 +64,7 @@ export interface IComment {
 }
 
 export interface ISharedPost {
-  originalPostId: Types.ObjectId;
+  originalPostId: Types.ObjectId | IPost;
   originalAuthorId: Types.ObjectId | IUser;
-
-  caption: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 

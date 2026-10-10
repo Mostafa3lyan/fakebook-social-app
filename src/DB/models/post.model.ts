@@ -18,8 +18,7 @@ export const ReactionSchema = new Schema<IReaction>(
 const SharedPostSchema = new Schema<ISharedPost>(
   {
     originalPostId: { type: Schema.Types.ObjectId, ref: "Post", required: true },
-    originalAuthorId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    caption: { type: String, trim: true, maxlength: 500 },
+    originalAuthorId: { type: Schema.Types.ObjectId, ref: "User", required: true }
   },
   { _id: false, timestamps: true }
 );
@@ -38,8 +37,9 @@ const postSchema = new Schema<IPost, Model<IPost>>(
       trim: true,
       maxlength: 63206,
       required: function (this: IPost) {
+        if (this.sharedFrom) return false;
         return !this.attachments || this.attachments.length === 0;
-      }
+      },
     },
     attachments: {
       type: [String],

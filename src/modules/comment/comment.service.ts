@@ -2,7 +2,7 @@
 import { FlattenMaps, HydratedDocument, Types } from "mongoose";
 import { CommentRepository, PostRepository } from "../../DB/repository";
 import { BadRequestException, ForbiddenException, NotFoundException } from "../../common/exceptions";
-import { notificationsService, NotificationsService, s3Service, S3Service } from "../../common/services";
+import { s3Service, S3Service } from "../../common/services";
 import { IComment, IPagination, IPost, IUser } from "../../common/interfaces";
 import { escapeRegex } from "../../common/utils";
 import {
@@ -10,9 +10,11 @@ import {
   getVisibility,
   PostHelper,
   postHelper,
+  AddReactionUpdate,
+  RemoveReactionUpdate,
 } from "../post/post.helper";
 import { PaginationDto } from "../../common/validation";
-import { ReactionTypeEnum, RoleEnum } from "../../common/enums";
+import { RoleEnum } from "../../common/enums";
 import {
   CommentIdParamDto,
   CreateCommentDto,
@@ -26,20 +28,17 @@ class CommentService {
 
   private readonly postRepository: PostRepository;
   private readonly commentRepository: CommentRepository;
-  private readonly notificationsService: NotificationsService;
   private readonly s3: S3Service;
   private readonly postHelper: PostHelper;
 
   constructor(
     commentRepository = new CommentRepository(),
     postRepository = new PostRepository(),
-    notifications = notificationsService,
     s3 = s3Service,
     postHelperInstance = postHelper,
   ) {
     this.commentRepository = commentRepository;
     this.postRepository = postRepository;
-    this.notificationsService = notifications;
     this.s3 = s3;
     this.postHelper = postHelperInstance;
   }
@@ -64,38 +63,7 @@ class CommentService {
     return comment as unknown as HydratedDocument<IComment>;
   }
 
-  private async notifyOwner(ownerId: Types.ObjectId | IUser, actor: HydratedDocument<IUser>, message: string) {
-    const recipientId = ownerId.toString();
-    if (recipientId === actor._id.toString()) return;
-    try {
-      await this.notificationsService.notifyNewMessage({
-        recipientId,
-        message: `${actor.firstName} ${actor.lastName} ${message}`,
-      });
-    } catch (err) {
-      console.error("Failed to send notification:", err);
-    }
-  }
 
-  private removeReaction(commentId: string, userId: Types.ObjectId, reactionType: ReactionTypeEnum) {
-    return this.commentRepository.updateOne({
-      filter: { _id: commentId },
-      update: {
-        $pull: { reactions: { createdBy: userId } },
-        $inc: { reactionsCount: -1, [`reactionsBreakdown.${reactionType}`]: -1 },
-      },
-    });
-  }
-
-  private addReaction(commentId: string, userId: Types.ObjectId, reactionType: string) {
-    return this.commentRepository.updateOne({
-      filter: { _id: commentId },
-      update: {
-        $push: { reactions: { reactionType, createdBy: userId, createdAt: new Date() } },
-        $inc: { reactionsCount: 1, [`reactionsBreakdown.${reactionType}`]: 1 },
-      },
-    });
-  }
 
   /** Shared create logic for top-level comments and replies. */
   private async insertComment(
@@ -145,8 +113,8 @@ class CommentService {
     }
 
     await this.postHelper.notifyNewlyTagged(undefined, mentions, user, "comment");
-    if (parent) await this.notifyOwner(parent.createdBy, user, "replied to your comment");
-    else await this.notifyOwner(post.createdBy, user, "commented on your post");
+    if (parent) await this.postHelper.notifyAuthor(parent.createdBy, user, "replied to your comment");
+    else await this.postHelper.notifyAuthor(post.createdBy, user, "commented on your post");
 
     return comment;
   }
@@ -315,13 +283,22 @@ class CommentService {
 
     // same reaction again = toggle off
     if (existingReaction?.reactionType === reaction) {
-      await this.removeReaction(commentId, user._id, reaction);
+      await this.commentRepository.updateOne({
+        filter: { _id: commentId },
+        update: RemoveReactionUpdate(user._id, reaction),
+      });
     } else {
       // different reaction = swap
       if (existingReaction) {
-        await this.removeReaction(commentId, user._id, existingReaction.reactionType);
+        await this.commentRepository.updateOne({
+          filter: { _id: commentId },
+          update: RemoveReactionUpdate(user._id, existingReaction.reactionType),
+        });
       }
-      await this.addReaction(commentId, user._id, reaction);
+      await this.commentRepository.updateOne({
+        filter: { _id: commentId },
+        update: AddReactionUpdate(user._id, reaction),
+      });
     }
 
     const updatedComment = await this.commentRepository.findById({

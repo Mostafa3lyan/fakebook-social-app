@@ -10,7 +10,6 @@ const locationSchema = z.object({
   lng: z.number().min(-180).max(180).optional(),
 });
 
-// shared
 export const postIdParamSchema = z.object({
   postId: id,
 });
@@ -19,7 +18,7 @@ export const postParamSchema = {
   params: postIdParamSchema,
 };
 
-// post.validation.ts
+
 const jsonArrayField = <T extends z.ZodTypeAny>(itemSchema: T) =>
   z.preprocess((val) => {
     if (typeof val !== "string") return val; // already an array (e.g. JSON body) — pass through untouched
@@ -74,10 +73,19 @@ export const reactAtPostSchema = {
   }),
 };
 
+export const sharePostSchema = {
+  params: postIdParamSchema,
+  body: z.object({
+    content: z.string().max(63206).trim().optional(),
+    visibility: z.enum(PostVisibilityEnum),
+    tags: jsonArrayField(objectId).optional(),
+  }),
+};
 
 // ── DTOs, inferred directly from the schemas above ──
 export type PostIdParamDto = z.infer<typeof postIdParamSchema>;
 export type CreatePostDto = z.infer<typeof createPostSchema.body>;
 export type UpdatePostDto = z.infer<typeof updatePostSchema.body>;
 export type ReactAtPostDto = z.infer<typeof reactAtPostSchema.body>;
+export type SharePostDto = z.infer<typeof sharePostSchema.body>;
 export type LocationDto = z.infer<typeof locationSchema>;
