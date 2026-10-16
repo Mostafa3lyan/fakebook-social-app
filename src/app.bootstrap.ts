@@ -2,6 +2,8 @@ import connectDB from "./DB/connection.db";
 import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter, userRouter, notificationsRouter, postRouter, commentRouter } from "./modules";
+import { createHandler } from "graphql-http/lib/use/express";
+import { schema, graphQLContext, type GraphQLContext } from "./modules/graphql";
 import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
@@ -18,6 +20,12 @@ const bootstrap = async () => {
   const app: Express = express();
 
   app.use(express.json(), cors());
+
+  // GraphQL endpoint
+  app.all("/graphql", createHandler<GraphQLContext>({
+    schema,
+    context: graphQLContext,
+  }));
 
   //application routing
   app.use("/auth", authRouter);

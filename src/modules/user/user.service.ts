@@ -41,6 +41,9 @@ class UserService {
 
   // get user profile
   public profile = async (user: HydratedDocument<IUser>) => {
+    if (user.phone) {
+      user.phone = decryptGenerator({ encryptedText: user.phone });
+    }
     return user;
   };
 
@@ -112,7 +115,7 @@ class UserService {
     }
 
     if (account.phone) {
-      account.phone = await decryptGenerator({ encryptedText: account.phone });
+      account.phone = decryptGenerator({ encryptedText: account.phone });
     }
 
     await this.userRepository.updateOne({

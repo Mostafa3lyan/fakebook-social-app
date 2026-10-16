@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { ZodError, ZodType } from "zod";
-import { BadRequestException } from "../common/exceptions";
+import z, { ZodError, ZodType } from "zod";
+import { BadRequestException, mapGraphQLError } from "../common/exceptions";
 
 type keyReqType = "body" | "query" | "params" | "headers" | "file" | "files"
 type SchemaType = Partial<Record<keyReqType, ZodType>>;
@@ -62,3 +62,13 @@ export const validation = (schema: SchemaType) => {
     next();
   };
 };
+
+export const gqlValidation = <S extends ZodType>(schema: S, args: unknown): z.output<S> => {
+    const validationResult = schema.safeParse(args);
+    if (!validationResult.success) {
+      const error = validationResult.error as ZodError;
+      throw mapGraphQLError(new BadRequestException("Validation error",
+        error.issues.map((issue) => ({ message: issue.message, path: issue.path }))) );
+    }
+    return validationResult.data;
+}

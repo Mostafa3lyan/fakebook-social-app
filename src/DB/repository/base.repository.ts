@@ -32,7 +32,17 @@ export abstract class DatabaseRepository<TRawDoc> {
     if (!projection) return { __v: 0 } as ProjectionType<TRawDoc>;
 
     if (typeof projection === "string") {
-      return projection.includes("__v") ? projection : `${projection} -__v`;
+      if (projection.includes("__v")) return projection;
+      const tokens = projection.trim().split(/\s+/).filter(Boolean);
+      const isExclusion = tokens.length > 0 && tokens.every((t) => t.startsWith("-"));
+      return isExclusion ? (`${projection} -__v` as ProjectionType<TRawDoc>) : projection;
+    }
+
+    if (Array.isArray(projection)) {
+      if (projection.includes("__v") || projection.includes("-__v")) return projection;
+      const isExclusion =
+        projection.length > 0 && projection.every((t) => typeof t === "string" && t.startsWith("-"));
+      return isExclusion ? ([...projection, "-__v"] as ProjectionType<TRawDoc>) : projection;
     }
 
     if (typeof projection === "object" && !Array.isArray(projection)) {
