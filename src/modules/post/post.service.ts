@@ -186,6 +186,8 @@ class PostService {
 
     const attachmentsChanged = files.length > 0 || removedKeys.length > 0;
 
+    const contentChanged = content !== undefined || attachmentsChanged;
+
     // ── commit; roll back uploads on any failure ──
     let updatedPost: HydratedDocument<IPost> | null;
     try {
@@ -198,7 +200,7 @@ class PostService {
           ...(location !== undefined && { location }),
           ...(attachmentsChanged && { attachments: [...survivors, ...newAttachments] }),
           updatedBy: user._id,
-          isEdited: true,
+          ...(contentChanged && { isEdited: true }),
         },
       });
     } catch (err) {
@@ -229,19 +231,29 @@ class PostService {
     // same reaction again = toggle off
     if (existingReaction?.reactionType === reaction) {
       await this.postRepository.updateOne({
-        filter: { _id: postId },
+        filter: { _id: postId, "reactions.createdBy": user._id },
         update: RemoveReactionUpdate(user._id, reaction),
       });
-    } else {
-      // different reaction = swap
-      if (existingReaction) {
-        await this.postRepository.updateOne({
-          filter: { _id: postId },
-          update: RemoveReactionUpdate(user._id, existingReaction.reactionType),
-        });
-      }
+    } else if (existingReaction) {
+      // different reaction = swap (reactionsCount stays constant, breakdown shifts)
+      await this.postRepository.updateOne({
+        filter: { _id: postId, "reactions.createdBy": user._id },
+        update: {
+          $pull: { reactions: { createdBy: user._id } },
+          $inc: { [`reactionsBreakdown.${existingReaction.reactionType}`]: -1 },
+        },
+      });
       await this.postRepository.updateOne({
         filter: { _id: postId },
+        update: {
+          $push: { reactions: { reactionType: reaction, createdBy: user._id, createdAt: new Date() } },
+          $inc: { [`reactionsBreakdown.${reaction}`]: 1 },
+        },
+      });
+    } else {
+      // new reaction = add with concurrency guard to avoid duplicates
+      await this.postRepository.updateOne({
+        filter: { _id: postId, "reactions.createdBy": { $ne: user._id } },
         update: AddReactionUpdate(user._id, reaction),
       });
     }

@@ -48,7 +48,7 @@ export const UserType: GraphQLObjectType = new GraphQLObjectType({
       resolve: (user: HydratedDocument<IUser>) => `${user.firstName} ${user.lastName}`,
     },
 
-    email: { type: new GraphQLNonNull(GraphQLString) },
+    email: { type: GraphQLString },
     phone: { type: GraphQLString },
     gender: { type: GenderEnumType },
     role: { type: RoleEnumType },
@@ -72,5 +72,19 @@ export const UserType: GraphQLObjectType = new GraphQLObjectType({
 
     createdAt: { type: GraphQLString },
     updatedAt: { type: GraphQLString },
+  }),
+});
+
+export const PublicUserType = new GraphQLObjectType({
+  name: "PublicUser",
+  fields: () => ({
+    _id: { type: new GraphQLNonNull(GraphQLID) },
+    firstName: { type: new GraphQLNonNull(GraphQLString) },
+    lastName: { type: new GraphQLNonNull(GraphQLString) },
+    fullName: {
+      type: GraphQLString,
+      resolve: (user) => `${user.firstName} ${user.lastName}`,
+    },
+    profilePicture: { type: GraphQLString },
   }),
 });

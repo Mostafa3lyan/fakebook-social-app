@@ -3,7 +3,7 @@ import express from "express";
 import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter, userRouter, notificationsRouter, postRouter, commentRouter } from "./modules";
 import { createHandler } from "graphql-http/lib/use/express";
-import { schema, graphQLContext, type GraphQLContext } from "./modules/graphql";
+import { schema, graphQLContext, type GraphQLContext, depthLimit } from "./modules/graphql";
 import { globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
@@ -25,6 +25,7 @@ const bootstrap = async () => {
   app.all("/graphql", createHandler<GraphQLContext>({
     schema,
     context: graphQLContext,
+    validationRules: [depthLimit(6)],
   }));
 
   //application routing

@@ -5,13 +5,21 @@ import { NotFoundException } from "../../common/exceptions";
 import { notificationsService, NotificationsService, s3Service, S3Service } from "../../common/services";
 import { UserRepository } from "../../DB/repository/user.repository";
 
-export const AUTHOR_POPULATE = [{ path: "createdBy", select: "firstName lastName profilePicture" }];
+export const USER_PUBLIC_FIELDS = "firstName lastName profilePicture";
+
+export const AUTHOR_POPULATE = [{ path: "createdBy", select: USER_PUBLIC_FIELDS }];
 
 export const POST_POPULATE = [
   ...AUTHOR_POPULATE,
+  { path: "updatedBy", select: USER_PUBLIC_FIELDS },
+  { path: "tags", select: USER_PUBLIC_FIELDS },
+  { path: "sharedFrom.originalAuthorId", select: USER_PUBLIC_FIELDS },
   {
     path: "sharedFrom.originalPostId",
-    populate: AUTHOR_POPULATE,
+    populate: [
+      ...AUTHOR_POPULATE,
+      { path: "tags", select: USER_PUBLIC_FIELDS },
+    ],
   },
 ];
 

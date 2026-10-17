@@ -1,5 +1,6 @@
 import { GraphQLObjectType, GraphQLSchema, GraphQLString } from "graphql";
-import { userQueries } from "../user";
+import { userQueries, userMutations } from "../user";
+import { postQueries, postMutations } from "../post";
 
 const query = new GraphQLObjectType({
   name: "RootSchemaQuery",
@@ -11,6 +12,7 @@ const query = new GraphQLObjectType({
       resolve: () => "Welcome to Fakebook GraphQL API",
     },
     ...userQueries,
+    ...postQueries,
   },
 });
 
@@ -23,6 +25,8 @@ const mutation = new GraphQLObjectType({
       description: "Healthcheck mutation",
       resolve: () => "Welcome to Fakebook GraphQL Mutations",
     },
+    ...userMutations,
+    ...postMutations,
   },
 });
 

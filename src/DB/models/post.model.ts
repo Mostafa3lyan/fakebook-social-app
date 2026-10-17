@@ -106,6 +106,10 @@ const postSchema = new Schema<IPost, Model<IPost>>(
 postSchema.index({ folderId: 1, createdAt: -1 });
 // Profile/author queries
 postSchema.index({ createdBy: 1, createdAt: -1 });
+// Feed visibility & timeline queries
+postSchema.index({ visibility: 1, createdAt: -1 });
+// Tagged posts timeline queries
+postSchema.index({ tags: 1, createdAt: -1 });
 // Sparse: only soft deleted docs are indexed, which is all the trash/restore
 // queries below ever look for.
 postSchema.index({ deletedAt: 1 }, { sparse: true });
