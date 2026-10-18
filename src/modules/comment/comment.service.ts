@@ -23,7 +23,7 @@ import {
   UpdateCommentDto,
 } from "./comment.validation";
 
-class CommentService {
+export class CommentService {
   private readonly MAX_ATTACHMENTS = 2;
 
   private readonly postRepository: PostRepository;
@@ -365,6 +365,127 @@ class CommentService {
     }
 
     return deleted;
+  }
+
+  /**
+   * Delete all comments and replies authored by a user across other posts,
+   * cascade delete any replies to those comments, update post and parent comment counters,
+   * and clean up S3 attachments.
+   */
+  async deleteUserComments(userId: Types.ObjectId | string) {
+    try {
+      const userComments = (await this.commentRepository.find({
+        filter: { createdBy: userId },
+        projection: { _id: 1, postId: 1, commentId: 1, attachments: 1 },
+        options: { lean: true },
+      })) as unknown as { _id: Types.ObjectId; postId: Types.ObjectId; commentId?: Types.ObjectId; attachments?: string[] }[];
+
+      if (!userComments.length) return;
+
+      // Collect reply subtrees for user's top-level comments (BFS)
+      const topLevelIds = userComments.filter((c) => !c.commentId).map((c) => c._id);
+      const descendants: { _id: Types.ObjectId; postId: Types.ObjectId; attachments?: string[] }[] = [];
+      let frontier: Types.ObjectId[] = topLevelIds;
+      while (frontier.length) {
+        const level = (await this.commentRepository.find({
+          filter: { commentId: { $in: frontier } },
+          projection: { _id: 1, postId: 1, attachments: 1 },
+          options: { lean: true },
+        })) as unknown as { _id: Types.ObjectId; postId: Types.ObjectId; attachments?: string[] }[];
+        descendants.push(...level);
+        frontier = level.map((r) => r._id);
+      }
+
+      const allCommentsToDelete = [...userComments, ...descendants];
+      const allCommentIds = Array.from(new Set(allCommentsToDelete.map((c) => c._id.toString()))).map((id) => new Types.ObjectId(id));
+      const deletedIdsSet = new Set(allCommentIds.map((id) => id.toString()));
+
+      // 1. Decrement commentsCount on target posts in bulk
+      const postDecrements = new Map<string, number>();
+      for (const c of allCommentsToDelete) {
+        const pid = c.postId?.toString();
+        if (pid) {
+          postDecrements.set(pid, (postDecrements.get(pid) || 0) + 1);
+        }
+      }
+      if (postDecrements.size > 0) {
+        const postBulkOps = Array.from(postDecrements.entries()).map(([postId, count]) => ({
+          updateOne: {
+            filter: { _id: postId },
+            update: { $inc: { commentsCount: -count } },
+          },
+        }));
+        await this.postRepository.bulkWrite({ operations: postBulkOps as any });
+      }
+
+      // 2. Decrement repliesCount on parent comments if parent wasn't also deleted
+      const parentDecrements = new Map<string, number>();
+      for (const c of userComments) {
+        if (c.commentId && !deletedIdsSet.has(c.commentId.toString())) {
+          const parentId = c.commentId.toString();
+          parentDecrements.set(parentId, (parentDecrements.get(parentId) || 0) + 1);
+        }
+      }
+      if (parentDecrements.size > 0) {
+        const commentBulkOps = Array.from(parentDecrements.entries()).map(([parentId, count]) => ({
+          updateOne: {
+            filter: { _id: parentId },
+            update: { $inc: { repliesCount: -count } },
+          },
+        }));
+        await this.commentRepository.bulkWrite({ operations: commentBulkOps as any });
+      }
+
+      // 3. Purge S3 attachments for deleted comments and replies
+      const allAssetKeys = [
+        ...userComments.flatMap((c) => c.attachments ?? []),
+        ...descendants.flatMap((d) => d.attachments ?? []),
+      ];
+      if (allAssetKeys.length > 0) {
+        await this.postHelper.safeDeleteAssets(allAssetKeys);
+      }
+
+      // 4. Delete comment documents
+      await this.commentRepository.deleteMany({
+        filter: { _id: { $in: allCommentIds } },
+      });
+    } catch (err) {
+      console.error("Failed to delete user comments cascade:", err);
+    }
+  }
+
+  /** Remove all reactions created by a specific user from comments and adjust counters. */
+  async removeUserReactions(userId: Types.ObjectId | string) {
+    try {
+      const comments = (await this.commentRepository.find({
+        filter: { "reactions.createdBy": userId },
+        projection: { _id: 1, reactions: 1 },
+        options: { lean: true },
+      })) as unknown as { _id: Types.ObjectId; reactions?: { createdBy: Types.ObjectId; reactionType: string }[] }[];
+
+      if (!comments.length) return;
+
+      const operations = comments.map((comment) => {
+        const reaction = comment.reactions?.find((r) => r.createdBy.toString() === userId.toString());
+        const reactionType = reaction?.reactionType;
+        return {
+          updateOne: {
+            filter: { _id: comment._id, "reactions.createdBy": userId },
+            update: {
+              $pull: { reactions: { createdBy: userId } },
+              $inc: {
+                reactionsCount: -1,
+                ...(reactionType ? { [`reactionsBreakdown.${reactionType}`]: -1 } : {}),
+              },
+            },
+          },
+        };
+      });
+
+      await this.commentRepository.bulkWrite({ operations: operations as any });
+    } catch (err) {
+      console.error("Failed to remove user comment reactions:", err);
+    }
   }
 }
 

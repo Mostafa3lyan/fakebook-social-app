@@ -18,21 +18,29 @@ import {
   ACCESS_TOKEN_EXPIRES_IN,
   REFRESH_TOKEN_EXPIRES_IN,
 } from "../../config/config.service";
-import { UserRepository } from "./../../DB/repository/user.repository";
+import { UserRepository } from "../../DB/repository";
+import { PostService, postService } from "../post/post.service";
+import { CommentService, commentService } from "../comment/comment.service";
 import { ShareProfileDto } from "./user.validation";
 
 class UserService {
   private readonly userRepository: UserRepository;
+  private readonly postService: PostService;
+  private readonly commentService: CommentService;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
   private readonly s3: S3Service;
   constructor(
     userRepository: UserRepository = new UserRepository(),
+    postServiceInstance: PostService = postService,
+    commentServiceInstance: CommentService = commentService,
     tokenService: TokenService = new TokenService(),
     redis: RedisService = redisService,
     s3: S3Service = s3Service,
   ) {
     this.userRepository = userRepository;
+    this.postService = postServiceInstance;
+    this.commentService = commentServiceInstance;
     this.tokenService = tokenService;
     this.redis = redis;
     this.s3 = s3;
@@ -208,6 +216,19 @@ class UserService {
 
   // delete account
   public deleteAccount = async (user: HydratedDocument<IUser>) => {
+    // 1. Cascade delete all posts and related data (comments, shares, S3 assets)
+    await this.postService.deleteUserPosts(user._id);
+
+    // 2. Cascade delete user's comments & replies on other posts (with asset & counter cleanups)
+    await this.commentService.deleteUserComments(user._id);
+
+    // 3. Remove user reactions from other posts
+    await this.postService.removeUserReactions(user._id);
+
+    // 4. Remove user reactions from other comments
+    await this.commentService.removeUserReactions(user._id);
+
+    // 5. Delete user account
     const account = await this.userRepository.deleteOne({
       filter: { _id: user._id, force: true },
     });
@@ -216,6 +237,7 @@ class UserService {
       throw new NotFoundException("Account not found");
     }
 
+    // 6. Delete user S3 folder (profile pictures, etc.)
     await this.s3.deleteFolderByPrefix({
       prefix: `users/${user._id.toString()}`,
     });

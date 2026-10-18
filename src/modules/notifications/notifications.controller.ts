@@ -31,7 +31,7 @@ router.post("/notifyNewMessage",
 
     await notificationsService.notifyNewMessage({
       recipientId,
-      message,
+      message
     });
 
     return successResponse({

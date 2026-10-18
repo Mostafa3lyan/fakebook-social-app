@@ -18,7 +18,7 @@ import { PaginationDto } from "../../common/validation";
 import { CreatePostDto, PostIdParamDto, ReactAtPostDto, SharePostDto, UpdatePostDto } from "./post.validation";
 import { PostVisibilityEnum, RoleEnum } from "../../common/enums";
 
-class PostService {
+export class PostService {
   private readonly MAX_ATTACHMENTS = 10;
 
   private readonly postRepository: PostRepository;
@@ -325,6 +325,84 @@ class PostService {
     return restoredPost;
   }
 
+  /**
+   * Cascade cleanup for a post: decrement root share count if shared, delete comments, and clean up S3 assets/folder.
+   */
+public async cleanUpPostCascade(post: {
+  _id: Types.ObjectId | string;
+  attachments?: string[] | undefined;
+  folderId?: string | undefined;
+  deletedAt?: Date | undefined;
+  sharedFrom?: { originalPostId: Types.ObjectId | { _id?: Types.ObjectId } } | undefined;
+}) {
+  // 1. Decrement the original post's share count (best effort)
+  if (post.sharedFrom?.originalPostId && !post.deletedAt) {
+    try {
+      const rootId =
+        (post.sharedFrom.originalPostId as { _id?: Types.ObjectId })._id?.toString() ??
+        post.sharedFrom.originalPostId.toString();
+
+      await this.postRepository.updateOne({
+        filter: { _id: rootId, shareCount: { $gt: 0 } },
+        update: { $inc: { shareCount: -1 } },
+      });
+    } catch (err) {
+      console.error("Failed to decrement shareCount for original post:", err);
+    }
+  }
+
+  // 2. Collect comment attachments
+  let comments: { attachments?: string[] | undefined}[] = [];
+  try {
+    comments = await this.commentRepository.find({
+      filter: { postId: post._id },
+      projection: { attachments: 1 },
+    });
+  } catch (err) {
+    console.error("Failed to load comments for post cleanup:", err);
+  }
+
+  // 3. Delete assets and S3 folder independently so one failure doesn't block the other
+  const allAssetKeys = [
+    ...new Set([
+      ...(post.attachments ?? []),
+      ...comments.flatMap((c) => c.attachments ?? []),
+    ]),
+  ];
+
+  const tasks: Promise<unknown>[] = [];
+
+  if (allAssetKeys.length > 0) {
+    tasks.push(this.postHelper.safeDeleteAssets(allAssetKeys));
+  }
+
+  if (post.folderId) {
+    tasks.push(
+      this.s3.deleteFolderByPrefix({
+        prefix: `posts/${post.folderId}/`,
+      }),
+    );
+  }
+
+  const results = await Promise.allSettled(tasks);
+  const assetsFailed = results.some((r) => r.status === "rejected");
+  results.forEach((r) => {
+    if (r.status === "rejected") {
+      console.error("Failed to clean up post assets:", r.reason);
+    }
+  });
+
+  // 4. Delete comments last, and only if asset cleanup succeeded,
+  //    so a retry can still find the attachment keys
+  if (!assetsFailed) {
+    try {
+      await this.commentRepository.deleteMany({ filter: { postId: post._id } });
+    } catch (err) {
+      console.error("Failed to delete comments for post:", err);
+    }
+  }
+}
+
   async hardDeletePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
     const post = await this.postRepository.findOneAndDelete({
       filter: { _id: postId },
@@ -335,37 +413,58 @@ class PostService {
     const isAllowed = user.role === RoleEnum.Admin || post.createdBy.toString() === user._id.toString();
     if (!isAllowed) throw new ForbiddenException("You are not allowed to delete this post");
 
-    if (post.sharedFrom?.originalPostId && !post.deletedAt) {
-      const rootId =
-        (post.sharedFrom.originalPostId as { _id?: Types.ObjectId })._id?.toString() ??
-        post.sharedFrom.originalPostId.toString();
-      await this.postRepository.updateOne({
-        filter: { _id: rootId },
-        update: { $inc: { shareCount: -1 } },
-      });
-    }
-
-    // Clean up all comments associated with this post and all attachments (best effort)
-    try {
-      const comments = await this.commentRepository.find({
-        filter: { postId },
-        projection: { attachments: 1 },
-        options: { lean: true },
-      });
-
-      await this.commentRepository.deleteMany({ filter: { postId } });
-
-      const allAssetKeys = [
-        ...(post.attachments ?? []),
-        ...comments.flatMap((c) => c.attachments ?? []),
-      ];
-
-      await this.postHelper.safeDeleteAssets(allAssetKeys);
-    } catch (err) {
-      console.error("Failed to clean up cascading assets for post:", err);
-    }
+    await this.cleanUpPostCascade(post);
 
     return post;
+  }
+
+  /** Delete all posts created by a specific user with full cascade cleanup. */
+  async deleteUserPosts(userId: Types.ObjectId | string) {
+    const userPosts = await this.postRepository.find({
+      filter: { createdBy: userId, paranoid: false },
+      projection: { _id: 1, folderId: 1, attachments: 1, sharedFrom: 1, deletedAt: 1 },
+      options: { lean: true },
+    });
+
+    if (!userPosts.length) return;
+
+    for (const post of userPosts) {
+      await this.cleanUpPostCascade(post as any);
+    }
+
+    await this.postRepository.deleteMany({
+      filter: { createdBy: userId, force: true },
+    });
+  }
+
+  /** Remove all reactions created by a specific user from other posts and adjust counters. */
+  async removeUserReactions(userId: Types.ObjectId | string) {
+    const posts = await this.postRepository.find({
+      filter: { "reactions.createdBy": userId },
+      projection: { _id: 1, reactions: 1 },
+      options: { lean: true },
+    });
+
+    if (!posts.length) return;
+
+    const operations = posts.map((post) => {
+      const reaction = post.reactions?.find((r) => r.createdBy.toString() === userId.toString());
+      const reactionType = reaction?.reactionType;
+      return {
+        updateOne: {
+          filter: { _id: post._id, "reactions.createdBy": userId },
+          update: {
+            $pull: { reactions: { createdBy: userId } },
+            $inc: {
+              reactionsCount: -1,
+              ...(reactionType ? { [`reactionsBreakdown.${reactionType}`]: -1 } : {}),
+            },
+          },
+        },
+      };
+    });
+
+    await this.postRepository.bulkWrite({ operations: operations as any });
   }
 }
 
