@@ -404,18 +404,21 @@ public async cleanUpPostCascade(post: {
 }
 
   async hardDeletePost({ postId }: PostIdParamDto, user: HydratedDocument<IUser>) {
-    const post = await this.postRepository.findOneAndDelete({
-      filter: { _id: postId },
-    });
-
+    const post = await this.postRepository.findById({ id: postId });
     if (!post) throw new NotFoundException("Post not found");
 
     const isAllowed = user.role === RoleEnum.Admin || post.createdBy.toString() === user._id.toString();
     if (!isAllowed) throw new ForbiddenException("You are not allowed to delete this post");
 
-    await this.cleanUpPostCascade(post);
+    const deletedPost = await this.postRepository.findOneAndDelete({
+      filter: { _id: postId },
+    });
 
-    return post;
+    if (!deletedPost) throw new NotFoundException("Post not found");
+
+    await this.cleanUpPostCascade(deletedPost);
+
+    return deletedPost;
   }
 
   /** Delete all posts created by a specific user with full cascade cleanup. */

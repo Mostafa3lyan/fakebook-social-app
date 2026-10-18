@@ -54,8 +54,10 @@ export const emailSchema = {
 };
 
 export const resetPasswordSchema = {
-  body: loginSchema.body
-    .extend({
+  body: z
+    .object({
+      resetToken: z.string().min(1, "resetToken is required"),
+      password,
       confirmPassword: z.string(),
     })
     .refine(

@@ -73,10 +73,11 @@ router.post(
   "/verify-otp",
   validation(validators.emailOtpSchema),
   async (req: Request, res: Response) => {
-    await authService.verifyOtp(req.body);
+    const data = await authService.verifyOtp(req.body);
     return successResponse({
       message: "OTP verified successfully",
       res,
+      data,
     });
   },
 );
@@ -89,10 +90,11 @@ router.get(
     if (typeof token !== "string") {
       throw new BadRequestException("Invalid or missing token");
     }
-    await authService.verifyMagicLink(token);
+    const data = await authService.verifyMagicLink(token);
     return successResponse({
       message: "Email verified successfully",
       res,
+      data,
     });
   },
 );

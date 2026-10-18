@@ -2,7 +2,6 @@ import Knock from "@knocklabs/node";
 import { HydratedDocument } from "mongoose";
 import { IUser } from "../interfaces";
 import { KNOCK_API_KEY, KNOCK_FCM_CHANNEL_ID } from "../../config/config.service";
-import { NotFoundException } from "../exceptions";
 
 interface TriggerWorkflowParams {
   workflowKey: string;
@@ -58,18 +57,23 @@ export class NotificationsService {
       throw new Error("FCM token is required");
     }
 
-    const channelData =
-      await this.knock.users.getChannelData(
+    let existingTokens: string[] = [];
+    try {
+      const channelData = await this.knock.users.getChannelData(
         userId,
         KNOCK_FCM_CHANNEL_ID,
       );
-
-    if (!("tokens" in channelData.data)) {
-      throw new NotFoundException(`No FCM tokens found for user ${userId}`);
+      if (channelData?.data && Array.isArray((channelData.data as any).tokens)) {
+        existingTokens = (channelData.data as any).tokens;
+      }
+    } catch {
+      // Channel data does not exist yet for this user in Knock — initialize fresh
+      existingTokens = [];
     }
+
     const tokens = [
       ...new Set([
-        ...(channelData.data?.tokens ?? []),
+        ...existingTokens,
         token,
       ]),
     ];

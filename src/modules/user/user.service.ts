@@ -115,15 +115,11 @@ class UserService {
   public shareProfile = async (userId: ShareProfileDto, loggedInUser: HydratedDocument<IUser>) => {
     const account = await this.userRepository.findOne({
       filter: { _id: userId },
-      projection: "firstName lastName email profilePicture profileVisits phone",
+      projection: "firstName lastName profilePicture profileVisits",
     });
 
     if (!account) {
       throw new NotFoundException("profile not found");
-    }
-
-    if (account.phone) {
-      account.phone = decryptGenerator({ encryptedText: account.phone });
     }
 
     await this.userRepository.updateOne({
@@ -210,7 +206,7 @@ class UserService {
     account.changeCredentialsTime = new Date();
     await account.save();
 
-    await this.redis.del(await this.redis.keys(this.redis.revokeTokenPrefix(user._id)));
+    await this.redis.del(await this.redis.scanKeys(this.redis.revokeTokenPrefix(user._id)));
     return this.tokenService.createLoginCredentials(user, issuer);
   };
 

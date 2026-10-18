@@ -4,7 +4,7 @@ import type { Express, Request, Response, NextFunction } from "express"
 import { authRouter, userRouter, notificationsRouter, postRouter, commentRouter } from "./modules";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema, graphQLContext, type GraphQLContext, depthLimit } from "./modules/graphql";
-import { globalErrorHandler } from "./middleware";
+import { authentication, globalErrorHandler } from "./middleware";
 import { port } from "./config/config.service";
 import { redisService } from "./common/services/redis.service";
 import cors from "cors";
@@ -41,7 +41,7 @@ const bootstrap = async () => {
     res.send("Hello World! Welcome to Fakebook");
   });
 
-  app.get("/uploads/*path", async (req: Request, res: Response, next: NextFunction) => {
+  app.get("/uploads/*path", authentication(), async (req: Request, res: Response, next: NextFunction) => {
     const { download, fileName } = req.query;
     const path = req.params.path as string[];
     const key = path.join("/");
@@ -63,7 +63,7 @@ const bootstrap = async () => {
     return await s3WriteStream(Body as NodeJS.ReadableStream, res);
   })
 
-  app.get("/pre-signed/*path", async (req: Request, res: Response, next: NextFunction) => {
+  app.get("/pre-signed/*path", authentication(), async (req: Request, res: Response, next: NextFunction) => {
     const { download, fileName } = req.query as { download: string, fileName: string };
     const path = req.params.path as string[];
     const key = path.join("/");

@@ -72,6 +72,10 @@ export class RedisService {
     return `Otp::Blocked::${email}::${subject}`;
   }
 
+  otpVerifyAttemptsKey({ email, subject }: RedisOtpKey): string {
+    return `Otp::VerifyAttempts::${email}::${subject}`;
+  }
+
   twoFaKey(userId: Types.ObjectId | string): string {
     return `TwoFA::Request::${userId}`;
   }
@@ -84,8 +88,16 @@ export class RedisService {
     return `TwoFA::Blocked::${userId}`;
   }
 
+  twoFaVerifyAttemptsKey(userId: Types.ObjectId | string): string {
+    return `TwoFA::VerifyAttempts::${userId}`;
+  }
+
   magicLinkRevokeKey(token: string): string {
     return `MagicLink::Revoked::${token}`;
+  }
+
+  resetTokenKey(token: string): string {
+    return `ResetToken::${token}`;
   }
 
   // ===========================

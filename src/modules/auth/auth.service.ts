@@ -1,4 +1,5 @@
 
+import { randomUUID } from "node:crypto";
 import { OAuth2Client, TokenPayload } from "google-auth-library";
 import { JwtPayload } from "jsonwebtoken";
 import { HydratedDocument, Types } from "mongoose";
@@ -32,7 +33,19 @@ class AuthenticationService {
   private readonly notificationsService: NotificationsService;
 
   private readonly MAX_ATTEMPTS = 3;
+  private readonly MAX_VERIFY_ATTEMPTS = 5;
   private readonly BLOCK_TTL = 60 * 60; // 1 hour
+
+  private async checkAndIncrementVerifyAttempts(attemptsKey: string, targetKey: string): Promise<void> {
+    const attempts = await this.redis.incr(attemptsKey);
+    if (attempts === 1) {
+      await this.redis.expire(attemptsKey, 300);
+    }
+    if (attempts >= this.MAX_VERIFY_ATTEMPTS) {
+      await this.redis.del([attemptsKey, targetKey]);
+      throw new TooManyRequestsException("Maximum invalid attempts exceeded. Please request a new code.");
+    }
+  }
 
   // constructor
   constructor(
@@ -146,6 +159,10 @@ class AuthenticationService {
 
     const match = await compareHash({ plainText: `${otp}`, cipherText: storedHashedOtp as string });
     if (!match) {
+      await this.checkAndIncrementVerifyAttempts(
+        this.redis.otpVerifyAttemptsKey(payload),
+        this.redis.otpKey(payload),
+      );
       throw new BadRequestException("Invalid OTP");
     }
 
@@ -156,6 +173,7 @@ class AuthenticationService {
       this.redis.otpKey(payload),
       this.redis.otpAttemptsKey(payload),
       this.redis.otpBlockKey(payload),
+      this.redis.otpVerifyAttemptsKey(payload),
     ]);
   };
 
@@ -207,7 +225,7 @@ class AuthenticationService {
   };
 
   // verifyOtp
-  public verifyOtp = async ({ email, otp }: EmailOtpDto) => {
+  public verifyOtp = async ({ email, otp }: EmailOtpDto): Promise<{ resetToken: string }> => {
     const payload = { email, subject: EmailSubjectEnum.Forgot_Password };
 
     const account = await this.userRepository.findOne({
@@ -225,18 +243,27 @@ class AuthenticationService {
 
     const match = await compareHash({ plainText: `${otp}`, cipherText: storedHashedOtp as string });
     if (!match) {
+      await this.checkAndIncrementVerifyAttempts(
+        this.redis.otpVerifyAttemptsKey(payload),
+        this.redis.otpKey(payload),
+      );
       throw new BadRequestException("Invalid OTP");
     }
 
-    account.resetVerifiedAt = new Date();
-    await account.save();
-    await this.redis.del(this.redis.otpKey(payload));
+    const resetToken = randomUUID();
+    await this.redis.set(this.redis.resetTokenKey(resetToken), account._id.toString(), 60 * 10);
+    await this.redis.del([
+      this.redis.otpKey(payload),
+      this.redis.otpAttemptsKey(payload),
+      this.redis.otpBlockKey(payload),
+      this.redis.otpVerifyAttemptsKey(payload),
+    ]);
 
-    return account;
+    return { resetToken };
   };
 
   // verifyMagicLink
-  public verifyMagicLink = async (token: string) => {
+  public verifyMagicLink = async (token: string): Promise<{ resetToken: string }> => {
     let payload: JwtPayload;
     try {
       payload = this.tokenService.verifyToken({ token, secretKey: MAGIC_LINK_SECRET });
@@ -257,35 +284,26 @@ class AuthenticationService {
       throw new BadRequestException("Magic link has already been used");
     }
 
-    account.resetVerifiedAt = new Date();
-    await account.save();
-
+    const resetToken = randomUUID();
+    await this.redis.set(this.redis.resetTokenKey(resetToken), account._id.toString(), 60 * 10);
     await this.redis.set(this.redis.magicLinkRevokeKey(token), "1", 60 * 15);
 
-    return account;
+    return { resetToken };
   };
 
   // resetPassword
-  public resetPassword = async ({ email, password }: { email: string; password: string }) => {
-    const otpPayload = { email, subject: EmailSubjectEnum.Forgot_Password };
+  public resetPassword = async ({ resetToken, password }: { resetToken: string; password: string }) => {
+    const userId = await this.redis.get(this.redis.resetTokenKey(resetToken));
+    if (!userId) {
+      throw new BadRequestException("Reset token is invalid or expired");
+    }
 
     const account = await this.userRepository.findOne({
-      filter: { email, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
+      filter: { _id: userId as string, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
       options: { lean: false },
     });
     if (!account) {
-      throw new NotFoundException("Cannot find account with this email");
-    }
-
-    if (!account.resetVerifiedAt) {
-      throw new BadRequestException("OTP not verified");
-    }
-
-    const isExpired = Date.now() - new Date(account.resetVerifiedAt).getTime() > 10 * 60 * 1000;
-    if (isExpired) {
-      account.resetVerifiedAt = undefined;
-      await account.save();
-      throw new BadRequestException("Verification expired, please request a new code");
+      throw new NotFoundException("Cannot find account");
     }
 
     account.password = password;
@@ -293,11 +311,7 @@ class AuthenticationService {
     account.changeCredentialsTime = new Date();
     await account.save();
 
-    await this.redis.del([
-      this.redis.otpKey(otpPayload),
-      this.redis.otpAttemptsKey(otpPayload),
-      this.redis.otpBlockKey(otpPayload),
-    ]);
+    await this.redis.del(this.redis.resetTokenKey(resetToken));
     await this.redis.del(await this.redis.scanKeys(this.redis.revokeTokenPrefix(account._id)));
 
     return account;
@@ -364,6 +378,10 @@ class AuthenticationService {
 
     const match = await compareHash({ plainText: `${otp}`, cipherText: storedHashedOtp as string });
     if (!match) {
+      await this.checkAndIncrementVerifyAttempts(
+        this.redis.twoFaVerifyAttemptsKey(user._id),
+        this.redis.twoFaKey(user._id),
+      );
       throw new BadRequestException("2FA code is incorrect");
     }
 
@@ -371,6 +389,7 @@ class AuthenticationService {
       this.redis.twoFaKey(user._id),
       this.redis.twoFaAttemptsKey(user._id),
       this.redis.twoFaBlockKey(user._id),
+      this.redis.twoFaVerifyAttemptsKey(user._id),
     ]);
 
     return this.tokenService.createLoginCredentials(user, issuer);
@@ -417,6 +436,10 @@ class AuthenticationService {
 
     const match = await compareHash({ plainText: `${otp}`, cipherText: storedHashedOtp as string });
     if (!match) {
+      await this.checkAndIncrementVerifyAttempts(
+        this.redis.twoFaVerifyAttemptsKey(user._id),
+        this.redis.twoFaKey(user._id),
+      );
       throw new BadRequestException("Invalid OTP");
     }
 
@@ -427,6 +450,7 @@ class AuthenticationService {
       this.redis.twoFaKey(user._id),
       this.redis.twoFaAttemptsKey(user._id),
       this.redis.twoFaBlockKey(user._id),
+      this.redis.twoFaVerifyAttemptsKey(user._id),
     ]);
   };
 

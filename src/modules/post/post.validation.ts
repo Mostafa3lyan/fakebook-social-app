@@ -61,9 +61,46 @@ export const createPostSchema = {
     }),
 };
 
+const updatePostBody = z
+  .object({
+    content: z.string().max(63206).trim().optional(),
+    attachments: z.array(file(fileFieldValidation.image)).max(10).optional(),
+    removeAttachments: jsonArrayField(z.string()).optional(),
+    visibility: z.enum(PostVisibilityEnum).optional(),
+    tags: jsonArrayField(objectId).optional(),
+    location: locationSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.tags?.length) {
+      const uniqueTags = new Set(data.tags.map((id) => id.toString()));
+      if (uniqueTags.size !== data.tags.length) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Tagged user IDs must be unique",
+          path: ["tags"],
+        });
+      }
+    }
+
+    const hasAnyField =
+      data.content !== undefined ||
+      (data.attachments && data.attachments.length > 0) ||
+      (data.removeAttachments && data.removeAttachments.length > 0) ||
+      data.visibility !== undefined ||
+      data.tags !== undefined ||
+      data.location !== undefined;
+
+    if (!hasAnyField) {
+      ctx.addIssue({
+        code: "custom",
+        message: "At least one field must be provided to update",
+      });
+    }
+  });
+
 export const updatePostSchema = {
   params: postIdParamSchema,
-  body: createPostSchema.body,
+  body: updatePostBody,
 };
 
 export const reactAtPostSchema = {

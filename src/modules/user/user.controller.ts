@@ -12,7 +12,7 @@ const router = Router();
 // User Profile
 router.get("/",
   authentication(),
-  authorization([RoleEnum.User]),
+  authorization([RoleEnum.User, RoleEnum.Admin]),
   async (req: Request, res: Response) => {
     const profile = await userService.profile(req.user);
     return successResponse({
@@ -125,23 +125,23 @@ router.delete(
 //   },
 // );
 
-// // Change Password
-// router.patch(
-//   "/change-password",
-//   authentication(),
-//   validation(validators.changePasswordSchema),
-//   async (req: Request, res: Response) => {
-//     const credentials = await userService.changePassword(
-//       req.body,
-//       req.user,
-//       `${req.protocol}://${req.host}`,
-//     );
-//     return successResponse({
-//       res,
-//       data: { ...credentials },
-//     });
-//   },
-// );
+// Change Password
+router.patch(
+  "/change-password",
+  authentication(),
+  validation(validators.changePasswordSchema),
+  async (req: Request, res: Response) => {
+    const credentials = await userService.changePassword(
+      req.body,
+      req.user,
+      `${req.protocol}://${req.host}`,
+    );
+    return successResponse({
+      res,
+      data: { ...credentials },
+    });
+  },
+);
 
 
 // delete account

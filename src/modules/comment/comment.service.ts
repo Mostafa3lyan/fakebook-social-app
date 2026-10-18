@@ -284,19 +284,29 @@ export class CommentService {
     // same reaction again = toggle off
     if (existingReaction?.reactionType === reaction) {
       await this.commentRepository.updateOne({
-        filter: { _id: commentId },
+        filter: { _id: commentId, "reactions.createdBy": user._id },
         update: RemoveReactionUpdate(user._id, reaction),
       });
-    } else {
-      // different reaction = swap
-      if (existingReaction) {
-        await this.commentRepository.updateOne({
-          filter: { _id: commentId },
-          update: RemoveReactionUpdate(user._id, existingReaction.reactionType),
-        });
-      }
+    } else if (existingReaction) {
+      // different reaction = swap (reactionsCount stays constant, breakdown shifts)
+      await this.commentRepository.updateOne({
+        filter: { _id: commentId, "reactions.createdBy": user._id },
+        update: {
+          $pull: { reactions: { createdBy: user._id } },
+          $inc: { [`reactionsBreakdown.${existingReaction.reactionType}`]: -1 },
+        },
+      });
       await this.commentRepository.updateOne({
         filter: { _id: commentId },
+        update: {
+          $push: { reactions: { reactionType: reaction, createdBy: user._id, createdAt: new Date() } },
+          $inc: { [`reactionsBreakdown.${reaction}`]: 1 },
+        },
+      });
+    } else {
+      // new reaction = add with concurrency guard to avoid duplicates
+      await this.commentRepository.updateOne({
+        filter: { _id: commentId, "reactions.createdBy": { $ne: user._id } },
         update: AddReactionUpdate(user._id, reaction),
       });
     }

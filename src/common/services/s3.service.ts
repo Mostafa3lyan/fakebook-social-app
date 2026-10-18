@@ -247,7 +247,7 @@ export class S3Service {
     key: string;
   }): Promise<DeleteObjectCommandOutput> {
     if (!key) {
-      throw new BadRequestException("key is required to delete asset");
+      return { $metadata: {} } as DeleteObjectCommandOutput;
     }
 
     const command = new DeleteObjectCommand({
@@ -266,7 +266,7 @@ export class S3Service {
     keys: string[];
   }): Promise<DeleteObjectsCommandOutput> {
     if (!keys?.length) {
-      throw new BadRequestException("keys are required to delete assets");
+      return { $metadata: {}, Deleted: [] } as DeleteObjectsCommandOutput;
     }
 
     const command = new DeleteObjectsCommand({
@@ -303,7 +303,10 @@ export class S3Service {
     prefix: string;
   }): Promise<DeleteObjectsCommandOutput> {
     const result = await this.listFolderDir({ bucket, prefix });
-    const keys = result.Contents?.map((content) => content.Key) as string[];
+    const keys = (result.Contents?.map((content) => content.Key).filter(Boolean) ?? []) as string[];
+    if (!keys.length) {
+      return { $metadata: {}, Deleted: [] } as DeleteObjectsCommandOutput;
+    }
     return await this.deleteMultipleAssets({ bucket, keys });
   }
 
