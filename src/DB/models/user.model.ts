@@ -57,7 +57,14 @@ const userSchema = new Schema<IUser, Model<IUser>, {}, {}, IUserVirtuals>(
 
     friends: {
       type: [Types.ObjectId],
-      ref: "user"
+      ref: "user",
+      default: [],
+    },
+
+    blockedUsers: {
+      type: [Types.ObjectId],
+      ref: "user",
+      default: [],
     },
 
     gender: {

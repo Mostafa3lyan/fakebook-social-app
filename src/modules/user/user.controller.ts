@@ -3,6 +3,7 @@ import { RoleEnum, TokenTypeEnum } from "../../common/enums";
 import { successResponse } from "../../common/response";
 import { tokenService } from "../../common/services";
 import { decodedTypes } from "../../common/types/user.types";
+import { PaginationDto, paginationValidationSchema } from "../../common/validation";
 import { authentication, authorization, validation } from "../../middleware";
 import { userService } from "./user.service";
 import * as validators from "./user.validation";
@@ -45,10 +46,62 @@ router.get(
   async (req: Request, res: Response) => {
     const result = await userService.searchUsers(
       req.query as unknown as validators.SearchUserDto,
+      req.user,
     );
     return successResponse({
       res,
       data: { users: result },
+    });
+  },
+);
+
+// Get Blocked Users List
+router.get(
+  "/blocked",
+  authentication(),
+  validation(paginationValidationSchema),
+  async (req: Request, res: Response) => {
+    const result = await userService.getBlockedUsers(
+      req.user,
+      req.query as PaginationDto,
+    );
+    return successResponse({
+      res,
+      data: { blockedUsers: result },
+    });
+  },
+);
+
+// Block User
+router.post(
+  "/block/:targetUserId",
+  authentication(),
+  validation(validators.targetUserParamSchema),
+  async (req: Request, res: Response) => {
+    const result = await userService.blockUser(
+      req.user,
+      req.params.targetUserId as string,
+    );
+    return successResponse({
+      message: result.message,
+      res,
+    });
+  },
+);
+
+// Unblock User
+router.delete(
+  "/unblock/:targetUserId",
+  authentication(),
+  validation(validators.targetUserParamSchema),
+  async (req: Request, res: Response) => {
+    const result = await userService.unblockUser(
+      req.user,
+      req.params.targetUserId as string,
+    );
+    return successResponse({
+      message: result.message,
+      res,
     });
   },
 );

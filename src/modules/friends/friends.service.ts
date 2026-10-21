@@ -44,6 +44,12 @@ export class FriendsService {
       throw new ConflictException("You are already friends with this user");
     }
 
+    const senderBlocked = (sender.blockedUsers || []).map(String);
+    const receiverBlocked = (receiver.blockedUsers || []).map(String);
+    if (senderBlocked.includes(receiverId) || receiverBlocked.includes(sender._id.toString())) {
+      throw new ForbiddenException("Cannot send friend request to this user");
+    }
+
     const existingRequest = await this.friendRequestRepository.findOne({
       filter: {
         $or: [
@@ -106,6 +112,12 @@ export class FriendsService {
     const sender = await this.userRepository.findById({ id: senderId });
     if (!sender) {
       throw new NotFoundException("Sender account no longer exists");
+    }
+
+    const userBlocked = (user.blockedUsers || []).map(String);
+    const senderBlocked = (sender.blockedUsers || []).map(String);
+    if (userBlocked.includes(senderId) || senderBlocked.includes(user._id.toString())) {
+      throw new ForbiddenException("Cannot accept friend request from a blocked user");
     }
 
     // Mutually add to friends array using $addToSet to avoid duplicates

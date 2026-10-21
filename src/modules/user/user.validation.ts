@@ -17,6 +17,12 @@ export const shareProfile = {
   }),
 };
 
+export const targetUserParamSchema = {
+  params: z.strictObject({
+    targetUserId: objectId,
+  }),
+};
+
 export const profileImage = {
   file: file(fileFieldValidation.image),
 };
@@ -83,6 +89,7 @@ export const searchUserSchema = {
 export type LogoutDto = z.infer<typeof logoutSchema.body>;
 export type ChangePasswordDto = z.infer<typeof changePasswordSchema.body>;
 export type ShareProfileDto = z.infer<typeof shareProfile.params>;
+export type TargetUserParamDto = z.infer<typeof targetUserParamSchema.params>;
 export type ProfileImageDto = z.infer<typeof profileImage.file>;
 export type ProfileCoverImageDto = z.infer<typeof profileCoverImage.files>;
 export type ProfileAttachmentsDto = z.infer<typeof profileAttachments.files>;

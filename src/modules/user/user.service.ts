@@ -1,4 +1,4 @@
-import { HydratedDocument } from "mongoose";
+import { HydratedDocument, Types } from "mongoose";
 import { LogoutEnum, RoleEnum, ProviderEnum } from "../../common/enums";
 import {
   BadRequestException,
@@ -6,7 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../../common/exceptions/index";
-import { IUser } from "../../common/interfaces";
+import { IUser, IPagination } from "../../common/interfaces";
 import { s3Service, S3Service } from "../../common/services";
 import { RedisService, redisService } from "../../common/services/redis.service";
 import { TokenService } from "../../common/services/token.service";
@@ -23,6 +23,7 @@ import {
 import { FriendRequestRepository, UserRepository } from "../../DB/repository";
 import { PostService, postService } from "../post/post.service";
 import { CommentService, commentService } from "../comment/comment.service";
+import { PaginationDto } from "../../common/validation";
 import {
   ShareProfileDto,
   RestoreAccountDto,
@@ -84,14 +85,15 @@ class UserService {
     return user;
   };
 
-  // search users by name or email
-  public searchUsers = async ({
-    search,
-    page = 1,
-    limit = 10,
-  }: SearchUserDto) => {
+  // search users by name or email (excluding blocked/blocking users)
+  public searchUsers = async (
+    { search, page = 1, limit = 10 }: SearchUserDto,
+    loggedInUser?: HydratedDocument<IUser>,
+  ) => {
     const escaped = escapeRegex(search);
     const regex = { $regex: escaped, $options: "i" };
+
+    const blockedIds = (loggedInUser?.blockedUsers || []).map(String);
 
     return this.userRepository.paginate({
       filter: {
@@ -100,12 +102,106 @@ class UserService {
           { lastName: regex },
           { email: regex },
         ],
+        ...(blockedIds.length && { _id: { $nin: blockedIds } }),
+        ...(loggedInUser && { blockedUsers: { $ne: loggedInUser._id } }),
       },
       projection: "firstName lastName email profilePicture",
       page,
       limit,
       sort: { firstName: 1, lastName: 1 },
     });
+  };
+
+  // block user
+  public blockUser = async (user: HydratedDocument<IUser>, targetUserId: string) => {
+    if (user._id.toString() === targetUserId) {
+      throw new BadRequestException("You cannot block yourself");
+    }
+
+    const target = await this.userRepository.findById({ id: targetUserId });
+    if (!target) {
+      throw new NotFoundException("User not found");
+    }
+
+    const blockedIds = (user.blockedUsers || []).map(String);
+    if (blockedIds.includes(targetUserId)) {
+      throw new ConflictException("User is already blocked");
+    }
+
+    // 1. Add to blockedUsers
+    await this.userRepository.updateOne({
+      filter: { _id: user._id },
+      update: { $addToSet: { blockedUsers: new Types.ObjectId(targetUserId) } },
+    });
+
+    // 2. Automatically remove friendship if they were friends
+    await this.userRepository.updateOne({
+      filter: { _id: user._id },
+      update: { $pull: { friends: new Types.ObjectId(targetUserId) } },
+    });
+    await this.userRepository.updateOne({
+      filter: { _id: targetUserId },
+      update: { $pull: { friends: user._id } },
+    });
+
+    // 3. Purge any pending friend requests in either direction
+    await this.friendRequestRepository.deleteMany({
+      filter: {
+        $or: [
+          { sender: user._id, receiver: targetUserId },
+          { sender: targetUserId, receiver: user._id },
+        ],
+      },
+    });
+
+    return { message: "User blocked successfully" };
+  };
+
+  // unblock user
+  public unblockUser = async (user: HydratedDocument<IUser>, targetUserId: string) => {
+    const blockedIds = (user.blockedUsers || []).map(String);
+    if (!blockedIds.includes(targetUserId)) {
+      throw new BadRequestException("User is not blocked");
+    }
+
+    await this.userRepository.updateOne({
+      filter: { _id: user._id },
+      update: { $pull: { blockedUsers: new Types.ObjectId(targetUserId) } },
+    });
+
+    return { message: "User unblocked successfully" };
+  };
+
+  // list blocked users with pagination
+  public getBlockedUsers = async (
+    user: HydratedDocument<IUser>,
+    { page = 1, limit = 10 }: PaginationDto,
+  ): Promise<IPagination<IUser>> => {
+    const account = await this.userRepository.findById({
+      id: user._id.toString(),
+      projection: "blockedUsers",
+      populate: {
+        path: "blockedUsers",
+        select: "firstName lastName profilePicture",
+        match: { deletedAt: { $exists: false } },
+      },
+    });
+
+    const allBlocked = (account?.blockedUsers || []) as unknown as IUser[];
+    const totalCount = allBlocked.length;
+    const startIndex = (page - 1) * limit;
+    const paginated = allBlocked.slice(startIndex, startIndex + limit);
+    const totalPages = Math.ceil(totalCount / limit) || 1;
+
+    return {
+      total: totalCount,
+      totalPages,
+      page,
+      limit,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+      data: paginated,
+    };
   };
 
   // logout
@@ -168,11 +264,24 @@ class UserService {
   public shareProfile = async (userId: ShareProfileDto, loggedInUser: HydratedDocument<IUser>) => {
     const account = await this.userRepository.findOne({
       filter: { _id: userId },
-      projection: "firstName lastName profilePicture profileVisits",
+      projection: "firstName lastName profilePicture profileVisits blockedUsers",
     });
 
     if (!account) {
       throw new NotFoundException("profile not found");
+    }
+
+    if (loggedInUser) {
+      const targetBlocked = (account.blockedUsers || []).map(String);
+      const viewerBlocked = (loggedInUser.blockedUsers || []).map(String);
+      const targetIdStr = ((account as any)._id ?? userId).toString();
+
+      if (
+        targetBlocked.includes(loggedInUser._id.toString()) ||
+        viewerBlocked.includes(targetIdStr)
+      ) {
+        throw new NotFoundException("profile not found");
+      }
     }
 
     await this.userRepository.updateOne({
@@ -185,6 +294,7 @@ class UserService {
     if (!isAdmin) {
       account.profileVisits = undefined;
     }
+    account.blockedUsers = undefined;
 
     return account;
   };

@@ -30,7 +30,8 @@ export interface IUser {
   oldPasswords?: string[];
 
   profileVisits?: number | undefined;
-  friends?: IUser[] | Types.ObjectId[]
+  friends?: IUser[] | Types.ObjectId[];
+  blockedUsers?: IUser[] | Types.ObjectId[] | undefined;
 
   /** Required for system signups, absent for Google accounts. */
   gender?: GenderEnum;

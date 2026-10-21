@@ -24,11 +24,16 @@ export const POST_POPULATE = [
 ];
 
 export const getVisibility = (user: HydratedDocument<IUser>) => {
+  const blockedUsers = (user.blockedUsers || []).map((b) =>
+    typeof b === "object" && "_id" in b ? (b as any)._id : b,
+  );
+  const notBlockedFilter = blockedUsers.length ? { createdBy: { $nin: blockedUsers } } : {};
+
   return [
-    { visibility: PostVisibilityEnum.PUBLIC },
+    { visibility: PostVisibilityEnum.PUBLIC, ...notBlockedFilter },
     { visibility: PostVisibilityEnum.ONLY_ME, createdBy: user._id },
-    { visibility: PostVisibilityEnum.FRIENDS, createdBy: { $in: [user._id, ...(user.friends || [])] } },
-    { tags: { $in: [user._id] } },
+    { visibility: PostVisibilityEnum.FRIENDS, createdBy: { $in: [user._id, ...(user.friends || [])] }, ...notBlockedFilter },
+    { tags: { $in: [user._id] }, ...notBlockedFilter },
   ];
 };
 

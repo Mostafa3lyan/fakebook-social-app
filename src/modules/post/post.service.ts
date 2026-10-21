@@ -161,6 +161,15 @@ export class PostService {
     }
 
     const isAuthor = viewer._id.toString() === targetUserId;
+
+    if (!isAuthor) {
+      const viewerBlocked = (viewer.blockedUsers || []).map(String);
+      const targetBlocked = (targetUser.blockedUsers || []).map(String);
+      if (viewerBlocked.includes(targetUserId) || targetBlocked.includes(viewer._id.toString())) {
+        throw new NotFoundException("User not found");
+      }
+    }
+
     const isFriend = (viewer.friends || []).map(String).includes(targetUserId);
 
     let visibilityFilter: Record<string, any>;
