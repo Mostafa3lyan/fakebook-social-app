@@ -1,7 +1,7 @@
 // post.service.ts
 import { randomUUID } from "node:crypto";
 import { FlattenMaps, HydratedDocument, Types } from "mongoose";
-import { CommentRepository, PostRepository } from "../../DB/repository";
+import { CommentRepository, PostRepository, UserRepository } from "../../DB/repository";
 import { BadRequestException, ForbiddenException, NotFoundException } from "../../common/exceptions";
 import { s3Service, S3Service } from "../../common/services";
 import { IPagination, IPost, IUser } from "../../common/interfaces";
@@ -23,17 +23,20 @@ export class PostService {
 
   private readonly postRepository: PostRepository;
   private readonly commentRepository: CommentRepository;
+  private readonly userRepository: UserRepository;
   private readonly s3: S3Service;
   private readonly postHelper: PostHelper;
 
   constructor(
     postRepository = new PostRepository(),
     commentRepository = new CommentRepository(),
+    userRepository = new UserRepository(),
     s3 = s3Service,
     postHelperInstance = postHelper,
   ) {
     this.postRepository = postRepository;
     this.commentRepository = commentRepository;
+    this.userRepository = userRepository;
     this.s3 = s3;
     this.postHelper = postHelperInstance;
   }
@@ -145,6 +148,53 @@ export class PostService {
 
     if (!post) throw new NotFoundException("Post not found");
     return post;
+  }
+
+  async getUserPosts(
+    targetUserId: string,
+    { page, limit, search }: PaginationDto,
+    viewer: HydratedDocument<IUser>,
+  ): Promise<IPagination<FlattenMaps<IPost>>> {
+    const targetUser = await this.userRepository.findById({ id: targetUserId });
+    if (!targetUser) {
+      throw new NotFoundException("User not found");
+    }
+
+    const isAuthor = viewer._id.toString() === targetUserId;
+    const isFriend = (viewer.friends || []).map(String).includes(targetUserId);
+
+    let visibilityFilter: Record<string, any>;
+    if (isAuthor) {
+      visibilityFilter = { createdBy: targetUserId };
+    } else if (isFriend) {
+      visibilityFilter = {
+        createdBy: targetUserId,
+        $or: [
+          { visibility: { $in: [PostVisibilityEnum.PUBLIC, PostVisibilityEnum.FRIENDS] } },
+          { tags: { $in: [viewer._id] } },
+        ],
+      };
+    } else {
+      visibilityFilter = {
+        createdBy: targetUserId,
+        $or: [
+          { visibility: PostVisibilityEnum.PUBLIC },
+          { tags: { $in: [viewer._id] } },
+        ],
+      };
+    }
+
+    return this.postRepository.paginate({
+      filter: {
+        ...visibilityFilter,
+        ...(search && { content: { $regex: escapeRegex(search), $options: "i" } }),
+      },
+      populate: POST_POPULATE,
+      projection: { reactions: 0, comments: 0 },
+      page,
+      limit,
+      sort: { createdAt: -1 },
+    });
   }
 
   // Update
@@ -437,6 +487,22 @@ public async cleanUpPostCascade(post: {
 
     await this.postRepository.deleteMany({
       filter: { createdBy: userId, force: true },
+    });
+  }
+
+  /** Soft delete all posts authored by a user. */
+  async softDeleteUserPosts(userId: Types.ObjectId | string) {
+    await this.postRepository.updateMany({
+      filter: { createdBy: userId },
+      update: { deletedAt: new Date() },
+    });
+  }
+
+  /** Restore all soft-deleted posts authored by a user. */
+  async restoreUserPosts(userId: Types.ObjectId | string) {
+    await this.postRepository.updateMany({
+      filter: { createdBy: userId, paranoid: false },
+      update: { restoredAt: new Date() },
     });
   }
 

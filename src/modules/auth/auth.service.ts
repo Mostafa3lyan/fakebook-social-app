@@ -346,6 +346,32 @@ public verifyMagicLink = async (token: string): Promise<{ resetToken: string }> 
     });
 
     if (!user) {
+      const deactivatedUser = await this.userRepository.findOne({
+        filter: { email, provider: ProviderEnum.System, emailConfirmedAt: { $exists: true }, paranoid: false },
+        projection: "+password",
+        options: { lean: false },
+      });
+
+      if (deactivatedUser && deactivatedUser.deletedAt) {
+        const match = await compareHash({
+          plainText: password,
+          cipherText: deactivatedUser.password as string,
+          approach: HashApproachEnum.bcrypt,
+        });
+
+        if (match) {
+          const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+          const isWithinGracePeriod = Date.now() - deactivatedUser.deletedAt.getTime() <= thirtyDaysInMs;
+          if (isWithinGracePeriod) {
+            throw new UnauthorizedException(
+              "Account is deactivated. You can restore your account within 30 days",
+            );
+          } else {
+            throw new UnauthorizedException("Account has been permanently deactivated.");
+          }
+        }
+      }
+
       throw new UnauthorizedException("Email or Password is incorrect");
     }
 
@@ -459,6 +485,37 @@ public verifyMagicLink = async (token: string): Promise<{ resetToken: string }> 
     }
 
     user.twoFactorVerified = true;
+    await user.save();
+
+    await this.redis.del([
+      this.redis.twoFaKey(user._id),
+      this.redis.twoFaAttemptsKey(user._id),
+      this.redis.twoFaBlockKey(user._id),
+      this.redis.twoFaVerifyAttemptsKey(user._id),
+    ]);
+  };
+
+  // disableTwoFactorAuth
+  public disableTwoFactorAuth = async (user: HydratedDocument<IUser>, { otp }: { otp: string }): Promise<void> => {
+    if (!user.twoFactorVerified) {
+      throw new BadRequestException("2FA is not enabled for this account");
+    }
+
+    const storedHashedOtp = await this.redis.get(this.redis.twoFaKey(user._id));
+    if (!storedHashedOtp) {
+      throw new BadRequestException("OTP has expired or is invalid");
+    }
+
+    const match = await compareHash({ plainText: `${otp}`, cipherText: storedHashedOtp as string });
+    if (!match) {
+      await this.checkAndIncrementVerifyAttempts(
+        this.redis.twoFaVerifyAttemptsKey(user._id),
+        this.redis.twoFaKey(user._id),
+      );
+      throw new BadRequestException("Invalid OTP");
+    }
+
+    user.twoFactorVerified = false;
     await user.save();
 
     await this.redis.del([

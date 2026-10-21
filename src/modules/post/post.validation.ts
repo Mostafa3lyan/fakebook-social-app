@@ -18,6 +18,12 @@ export const postParamSchema = {
   params: postIdParamSchema,
 };
 
+export const userIdParamSchema = {
+  params: z.object({
+    userId: id,
+  }),
+};
+
 
 const jsonArrayField = <T extends z.ZodTypeAny>(itemSchema: T) =>
   z.preprocess((val) => {
@@ -121,6 +127,7 @@ export const sharePostSchema = {
 
 // ── DTOs, inferred directly from the schemas above ──
 export type PostIdParamDto = z.infer<typeof postIdParamSchema>;
+export type UserIdParamDto = z.infer<typeof userIdParamSchema.params>;
 export type CreatePostDto = z.infer<typeof createPostSchema.body>;
 export type UpdatePostDto = z.infer<typeof updatePostSchema.body>;
 export type ReactAtPostDto = z.infer<typeof reactAtPostSchema.body>;

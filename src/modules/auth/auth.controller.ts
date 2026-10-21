@@ -171,4 +171,18 @@ router.patch(
   },
 );
 
+// verify 2fa code and disable 2fa
+router.patch(
+  "/disable-2fa",
+  authentication(),
+  validation(validators.otpSchema),
+  async (req: Request, res: Response) => {
+    await authService.disableTwoFactorAuth(req.user, req.body);
+    return successResponse({
+      message: "2fa disabled successfully",
+      res,
+    });
+  },
+);
+
 export default router;

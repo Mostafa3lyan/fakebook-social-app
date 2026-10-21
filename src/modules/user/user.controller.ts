@@ -22,6 +22,37 @@ router.get("/",
   },
 );
 
+// Update Profile
+router.patch(
+  "/profile",
+  authentication(),
+  validation(validators.updateProfileSchema),
+  async (req: Request, res: Response) => {
+    const profile = await userService.updateProfile(req.body, req.user);
+    return successResponse({
+      message: "Profile updated successfully",
+      res,
+      data: { profile },
+    });
+  },
+);
+
+// Search Users
+router.get(
+  "/search",
+  authentication(),
+  validation(validators.searchUserSchema),
+  async (req: Request, res: Response) => {
+    const result = await userService.searchUsers(
+      req.query as unknown as validators.SearchUserDto,
+    );
+    return successResponse({
+      res,
+      data: { users: result },
+    });
+  },
+);
+
 // Logout
 router.post(
   "/logout",
@@ -144,18 +175,47 @@ router.patch(
 );
 
 
-// delete account
+// Soft delete account (deactivate with 30-day restore window)
 router.delete(
-  "/delete-account",
+  "/soft-delete",
   authentication(),
   async (req: Request, res: Response) => {
-    await userService.deleteAccount(req.user);
+    const result = await userService.softDeleteAccount(req.user);
     return successResponse({
-      message: "account deleted successfully",
+      message: result.message,
       res,
     });
   },
 );
 
+// Restore deactivated account
+router.patch(
+  "/restore-account",
+  validation(validators.restoreAccountSchema),
+  async (req: Request, res: Response) => {
+    const credentials = await userService.restoreAccount(
+      req.body,
+      `${req.protocol}://${req.host}`,
+    );
+    return successResponse({
+      message: "Account restored successfully",
+      res,
+      data: { ...credentials },
+    });
+  },
+);
+
+// Hard delete account (permanent purge with full cascade)
+router.delete(
+  "/delete-account",
+  authentication(),
+  async (req: Request, res: Response) => {
+    const result = await userService.hardDeleteAccount(req.user);
+    return successResponse({
+      message: result.message,
+      res,
+    });
+  },
+);
 
 export default router;

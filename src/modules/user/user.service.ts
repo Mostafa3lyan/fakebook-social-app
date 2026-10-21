@@ -1,9 +1,10 @@
 import { HydratedDocument } from "mongoose";
-import { LogoutEnum, RoleEnum } from "../../common/enums";
+import { LogoutEnum, RoleEnum, ProviderEnum } from "../../common/enums";
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  UnauthorizedException,
 } from "../../common/exceptions/index";
 import { IUser } from "../../common/interfaces";
 import { s3Service, S3Service } from "../../common/services";
@@ -14,19 +15,26 @@ import {
   compareHash,
   decryptGenerator,
 } from "../../common/utils/security/index";
+import { escapeRegex } from "../../common/utils";
 import {
   ACCESS_TOKEN_EXPIRES_IN,
   REFRESH_TOKEN_EXPIRES_IN,
 } from "../../config/config.service";
-import { UserRepository } from "../../DB/repository";
+import { FriendRequestRepository, UserRepository } from "../../DB/repository";
 import { PostService, postService } from "../post/post.service";
 import { CommentService, commentService } from "../comment/comment.service";
-import { ShareProfileDto } from "./user.validation";
+import {
+  ShareProfileDto,
+  RestoreAccountDto,
+  UpdateProfileDto,
+  SearchUserDto,
+} from "./user.validation";
 
 class UserService {
   private readonly userRepository: UserRepository;
   private readonly postService: PostService;
   private readonly commentService: CommentService;
+  private readonly friendRequestRepository: FriendRequestRepository;
   private readonly redis: RedisService;
   private readonly tokenService: TokenService;
   private readonly s3: S3Service;
@@ -34,6 +42,7 @@ class UserService {
     userRepository: UserRepository = new UserRepository(),
     postServiceInstance: PostService = postService,
     commentServiceInstance: CommentService = commentService,
+    friendRequestRepository: FriendRequestRepository = new FriendRequestRepository(),
     tokenService: TokenService = new TokenService(),
     redis: RedisService = redisService,
     s3: S3Service = s3Service,
@@ -41,6 +50,7 @@ class UserService {
     this.userRepository = userRepository;
     this.postService = postServiceInstance;
     this.commentService = commentServiceInstance;
+    this.friendRequestRepository = friendRequestRepository;
     this.tokenService = tokenService;
     this.redis = redis;
     this.s3 = s3;
@@ -53,6 +63,49 @@ class UserService {
       user.phone = decryptGenerator({ encryptedText: user.phone });
     }
     return user;
+  };
+
+  // update user profile
+  public updateProfile = async (
+    data: UpdateProfileDto,
+    user: HydratedDocument<IUser>,
+  ) => {
+    if (data.firstName !== undefined) user.firstName = data.firstName;
+    if (data.lastName !== undefined) user.lastName = data.lastName;
+    if (data.phone !== undefined) user.phone = data.phone;
+    if (data.dateOfBirth !== undefined) user.dateOfBirth = data.dateOfBirth;
+    if (data.gender !== undefined) user.gender = data.gender;
+
+    await user.save();
+
+    if (user.phone) {
+      user.phone = decryptGenerator({ encryptedText: user.phone });
+    }
+    return user;
+  };
+
+  // search users by name or email
+  public searchUsers = async ({
+    search,
+    page = 1,
+    limit = 10,
+  }: SearchUserDto) => {
+    const escaped = escapeRegex(search);
+    const regex = { $regex: escaped, $options: "i" };
+
+    return this.userRepository.paginate({
+      filter: {
+        $or: [
+          { firstName: regex },
+          { lastName: regex },
+          { email: regex },
+        ],
+      },
+      projection: "firstName lastName email profilePicture",
+      page,
+      limit,
+      sort: { firstName: 1, lastName: 1 },
+    });
   };
 
   // logout
@@ -210,8 +263,79 @@ class UserService {
     return this.tokenService.createLoginCredentials(user, issuer);
   };
 
-  // delete account
-  public deleteAccount = async (user: HydratedDocument<IUser>) => {
+  // soft delete account (deactivation with 30-day restore window)
+  public softDeleteAccount = async (user: HydratedDocument<IUser>) => {
+    // 1. Soft-delete user's posts so they are hidden from feeds
+    await this.postService.softDeleteUserPosts(user._id);
+
+    // 2. Set deletion timestamp and invalidate tokens
+    user.deletedAt = new Date();
+    user.changeCredentialsTime = new Date();
+    await user.save();
+
+    // 3. Invalidate active Redis tokens
+    const revokedKeys = await this.redis.scanKeys(this.redis.revokeTokenPrefix(user._id));
+    if (revokedKeys.length) {
+      await this.redis.del(revokedKeys);
+    }
+
+    return { message: "Account deactivated successfully. You can restore it within 30 days." };
+  };
+
+  // restore account within 30 days
+  public restoreAccount = async (
+    { email, password }: RestoreAccountDto,
+    issuer: string,
+  ) => {
+    const account = await this.userRepository.findOne({
+      filter: { email, provider: ProviderEnum.System, paranoid: false },
+      projection: "+password",
+      options: { lean: false },
+    });
+
+    if (!account || !account.deletedAt) {
+      throw new BadRequestException("Account is not deactivated or does not exist");
+    }
+
+    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+    const isWithinGracePeriod = Date.now() - account.deletedAt.getTime() <= thirtyDaysInMs;
+    if (!isWithinGracePeriod) {
+      throw new BadRequestException("The 30-day restoration window has expired");
+    }
+
+    const isMatch = await compareHash({
+      plainText: password,
+      cipherText: account.password as string,
+    });
+    if (!isMatch) {
+      throw new UnauthorizedException("Email or Password is incorrect");
+    }
+
+    // Restore user account (pre hook unsets deletedAt when restoredAt is provided)
+    await this.userRepository.updateOne({
+      filter: { _id: account._id, paranoid: false },
+      update: { restoredAt: new Date(), changeCredentialsTime: new Date() },
+    });
+
+    // Restore user posts
+    await this.postService.restoreUserPosts(account._id);
+
+    // Reload active account and return fresh credentials
+    const restoredUser = await this.userRepository.findOne({
+      filter: { _id: account._id },
+      options: { lean: false },
+    });
+
+    if (!restoredUser) {
+      throw new NotFoundException("Failed to load restored account");
+    }
+
+    const credentials = await this.tokenService.createLoginCredentials(restoredUser, issuer);
+    return { user: restoredUser, ...credentials };
+  };
+
+  // hard delete account (permanent purge with cascade)
+  public hardDeleteAccount = async (user: HydratedDocument<IUser>) => {
     // 1. Cascade delete all posts and related data (comments, shares, S3 assets)
     await this.postService.deleteUserPosts(user._id);
 
@@ -224,7 +348,24 @@ class UserService {
     // 4. Remove user reactions from other comments
     await this.commentService.removeUserReactions(user._id);
 
-    // 5. Delete user account
+    // 5. Remove user from all friends lists
+    await this.userRepository.updateMany({
+      filter: { friends: user._id },
+      update: { $pull: { friends: user._id } },
+    });
+
+    // 6. Delete all friend requests involving this user
+    await this.friendRequestRepository.deleteMany({
+      filter: { $or: [{ sender: user._id }, { receiver: user._id }] },
+    });
+
+    // 7. Invalidate active Redis tokens
+    const revokedKeys = await this.redis.scanKeys(this.redis.revokeTokenPrefix(user._id));
+    if (revokedKeys.length) {
+      await this.redis.del(revokedKeys);
+    }
+
+    // 8. Delete user account document permanently
     const account = await this.userRepository.deleteOne({
       filter: { _id: user._id, force: true },
     });
@@ -233,14 +374,13 @@ class UserService {
       throw new NotFoundException("Account not found");
     }
 
-    // 6. Delete user S3 folder (profile pictures, etc.)
+    // 9. Delete user S3 folder (profile pictures, etc.)
     await this.s3.deleteFolderByPrefix({
       prefix: `users/${user._id.toString()}`,
     });
 
-    return account;
+    return { message: "Account permanently deleted" };
   };
-
 
 }
 

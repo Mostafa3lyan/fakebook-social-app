@@ -33,6 +33,22 @@ router.get(
   },
 );
 
+// Get posts by user
+router.get(
+  "/user/:userId",
+  authentication(),
+  validation(validators.userIdParamSchema),
+  validation(paginationValidationSchema),
+  async (req: Request, res: Response) => {
+    const posts = await postService.getUserPosts(
+      req.params.userId as string,
+      req.query as PaginationDto,
+      req.user,
+    );
+    return successResponse({ res, data: { posts } });
+  },
+);
+
 // Get single post
 router.get(
   "/:postId",
