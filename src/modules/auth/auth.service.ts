@@ -262,34 +262,49 @@ class AuthenticationService {
     return { resetToken };
   };
 
-  // verifyMagicLink
-  public verifyMagicLink = async (token: string): Promise<{ resetToken: string }> => {
-    let payload: JwtPayload;
-    try {
-      payload = this.tokenService.verifyToken({ token, secretKey: MAGIC_LINK_SECRET });
-    } catch {
-      throw new BadRequestException("Magic link is invalid or expired");
-    }
+public verifyMagicLink = async (token: string): Promise<{ resetToken: string }> => {
+  const INVALID = "Magic link is invalid or expired";
 
-    const account = await this.userRepository.findOne({
-      filter: { _id: payload.userId, emailConfirmedAt: { $exists: true }, provider: ProviderEnum.System },
-      options: { lean: false },
-    });
-    if (!account) {
-      throw new NotFoundException("Cannot find account");
-    }
+  // 1. Verify signature and expiry
+  let payload: JwtPayload;
+  try {
+    payload = this.tokenService.verifyToken({ token, secretKey: MAGIC_LINK_SECRET });
+  } catch {
+    throw new BadRequestException(INVALID);
+  }
 
-    const isRevoked = await this.redis.get(this.redis.magicLinkRevokeKey(token));
-    if (isRevoked) {
-      throw new BadRequestException("Magic link has already been used");
-    }
+  // 2. Atomically claim the link (single use, race-safe).
+  //    TTL covers the JWT's remaining lifetime so the link can never become reusable.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const remaining = payload.exp ? payload.exp - nowSec : 60 * 15;
+  const claimed = await this.redis.setIfNotExists(
+    this.redis.magicLinkRevokeKey(token),
+    "1",
+    Math.max(remaining, 1),
+  );
+  if (!claimed) throw new BadRequestException(INVALID);
 
-    const resetToken = randomUUID();
-    await this.redis.set(this.redis.resetTokenKey(resetToken), account._id.toString(), 60 * 10);
-    await this.redis.set(this.redis.magicLinkRevokeKey(token), "1", 60 * 15);
+  // 3. Load the account (email confirmed, password-based accounts only)
+  const account = await this.userRepository.findOne({
+    filter: {
+      _id: payload.userId,
+      emailConfirmedAt: { $exists: true },
+      provider: ProviderEnum.System,
+    },
+    options: { lean: false },
+  });
+  if (!account) throw new BadRequestException(INVALID); // same message, no account leak
 
-    return { resetToken };
-  };
+  // 4. Issue a short-lived, single-use reset token
+  const resetToken = randomUUID();
+  await this.redis.set(
+    this.redis.resetTokenKey(resetToken),
+    account._id.toString(),
+    60 * 10,
+  );
+
+  return { resetToken };
+};
 
   // resetPassword
   public resetPassword = async ({ resetToken, password }: { resetToken: string; password: string }) => {

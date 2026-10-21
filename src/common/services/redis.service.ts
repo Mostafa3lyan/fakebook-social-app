@@ -118,6 +118,11 @@ export class RedisService {
     }
   }
 
+async setIfNotExists(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  const result = await this.client.set(key, value, { EX: ttlSeconds, NX: true });
+  return result === "OK";
+}
+
   async update(key: string, value: RedisValue, ttl?: number | undefined): Promise<string | null> {
     try {
       const data =
