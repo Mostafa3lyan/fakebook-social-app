@@ -187,7 +187,7 @@ class UserService {
       },
     });
 
-    const allBlocked = (account?.blockedUsers || []) as unknown as IUser[];
+    const allBlocked = ((account?.blockedUsers || []) as unknown as IUser[]).filter(Boolean);
     const totalCount = allBlocked.length;
     const startIndex = (page - 1) * limit;
     const paginated = allBlocked.slice(startIndex, startIndex + limit);

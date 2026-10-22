@@ -28,7 +28,7 @@ router.post(
 
 // Accept friend request
 router.patch(
-  "/requests/:requestId/accept",
+  "/accept/:requestId",
   authentication(),
   validation(validators.requestIdParamSchema),
   async (req: Request, res: Response) => {
@@ -43,26 +43,25 @@ router.patch(
   },
 );
 
-// Reject friend request
 router.patch(
-  "/requests/:requestId/reject",
+  "/reject/:requestId",
   authentication(),
   validation(validators.requestIdParamSchema),
   async (req: Request, res: Response) => {
-    const result = await friendsService.rejectFriendRequest(
-      req.user,
-      req.params.requestId as string,
-    );
-    return successResponse({
-      message: result.message,
-      res,
-    });
-  },
+  const result = await friendsService.rejectFriendRequest(
+    req.user,
+    req.params.requestId as string,
+  );
+  return successResponse({
+    message: result.message,
+    res,
+  });
+  }
 );
 
 // Cancel outgoing friend request
 router.delete(
-  "/requests/:requestId/cancel",
+  "/cancel/:requestId",
   authentication(),
   validation(validators.requestIdParamSchema),
   async (req: Request, res: Response) => {
@@ -79,7 +78,7 @@ router.delete(
 
 // Remove friend
 router.delete(
-  "/:friendId",
+  "/unfriend/:friendId",
   authentication(),
   validation(validators.friendIdParamSchema),
   async (req: Request, res: Response) => {
@@ -96,7 +95,7 @@ router.delete(
 
 // Get incoming pending friend requests
 router.get(
-  "/requests/incoming",
+  "/requests/received",
   authentication(),
   validation(paginationValidationSchema),
   async (req: Request, res: Response) => {
@@ -113,7 +112,7 @@ router.get(
 
 // Get outgoing pending friend requests
 router.get(
-  "/requests/outgoing",
+  "/requests/sent",
   authentication(),
   validation(paginationValidationSchema),
   async (req: Request, res: Response) => {

@@ -1,4 +1,4 @@
-import { Model, model, Schema, Types } from "mongoose";
+import { Model, model, Schema } from "mongoose";
 import { GenderEnum, ProviderEnum, RoleEnum } from "../../common/enums/index";
 import { IUser, IUserVirtuals } from "../../common/interfaces/index";
 import { encryptGenerator, generateHash } from "../../common/utils/security";
@@ -56,14 +56,14 @@ const userSchema = new Schema<IUser, Model<IUser>, {}, {}, IUserVirtuals>(
     },
 
     friends: {
-      type: [Types.ObjectId],
-      ref: "user",
+      type: [Schema.Types.ObjectId],
+      ref: "User",
       default: [],
     },
 
     blockedUsers: {
-      type: [Types.ObjectId],
-      ref: "user",
+      type: [Schema.Types.ObjectId],
+      ref: "User",
       default: [],
     },
 

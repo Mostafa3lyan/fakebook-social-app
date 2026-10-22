@@ -214,7 +214,7 @@ export class FriendsService {
   // List friends for a user with pagination
   public async getFriends(
     targetUserId: string,
-    { page = 1, limit = 10 }: PaginationDto,
+    { page = 1, limit = 10, search }: PaginationDto,
   ): Promise<IPagination<IUser>> {
     const account = await this.userRepository.findById({
       id: targetUserId,
@@ -230,7 +230,17 @@ export class FriendsService {
       throw new NotFoundException("User not found");
     }
 
-    const allFriends = (account.friends || []) as unknown as IUser[];
+    let allFriends = ((account.friends || []) as unknown as IUser[]).filter(Boolean);
+
+    if (search) {
+      const q = search.toLowerCase();
+      allFriends = allFriends.filter(
+        (f) =>
+          f.firstName?.toLowerCase().includes(q) ||
+          f.lastName?.toLowerCase().includes(q),
+      );
+    }
+
     const totalCount = allFriends.length;
     const startIndex = (page - 1) * limit;
     const paginatedFriends = allFriends.slice(startIndex, startIndex + limit);
